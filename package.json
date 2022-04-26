@@ -1,0 +1,28 @@
+{
+  "name": "mediawiki-api-axios",
+  "version": "1.0.0",
+  "description": "mw-like MediaWiki Api wrapper for axios",
+  "main": "index.mjs",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Dragon-Fish/mediawiki-api-axios.git"
+  },
+  "keywords": [
+    "mediawiki",
+    "mediawiki-api",
+    "api-wrapper",
+    "axios"
+  ],
+  "author": "Dragon-Fish <dragon-fish@qq.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Dragon-Fish/mediawiki-api-axios/issues"
+  },
+  "homepage": "https://github.com/Dragon-Fish/mediawiki-api-axios#readme",
+  "dependencies": {
+    "axios": "^0.27.1"
+  }
+}
