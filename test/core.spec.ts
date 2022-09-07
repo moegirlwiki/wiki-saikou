@@ -1,7 +1,9 @@
 import { describe, it } from 'mocha'
 import { expect } from 'chai'
 import { env } from 'process'
-import { MediaWikiApi } from '../src'
+import { MediaWikiApi } from '../src/index'
+import FormData from 'form-data'
+(globalThis as any).FormData = FormData
 
 const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php', {
   headers: {
@@ -20,7 +22,6 @@ describe('MediaWikiApi', () => {
 
   it('[GET] userinfo', async () => {
     const info = await api.getUserInfo()
-    expect(info).to.be.an('object')
     expect(info.id).to.be.an('number')
     expect(info.groups).to.be.an('array')
   })
@@ -30,7 +31,6 @@ describe('MediaWikiApi', () => {
       action: 'query',
       meta: ['siteinfo', 'userinfo'],
     })
-    expect(data.query).to.be.an('object')
     expect(data.query.general).to.not.be.undefined
     expect(data.query.userinfo).to.not.be.undefined
   })
@@ -43,7 +43,6 @@ describe('MediaWikiApi', () => {
       prop: ['text', 'wikitext', 'links'],
       disablelimitreport: 1,
     })
-    expect(data.parse).to.be.an('object')
     expect(data.parse.title).to.eq('Custom Page')
     expect(data.parse.text).to.includes('<b>bold</b>')
     expect(data.parse.text).to.includes('<i>italic</i>')

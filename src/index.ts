@@ -3,7 +3,6 @@
  */
 
 import axios, { AxiosRequestConfig, AxiosResponse } from 'axios'
-import FormData from 'form-data'
 
 export class MediaWikiApi {
   baseURL: string
@@ -41,9 +40,15 @@ export class MediaWikiApi {
     })
     instance.interceptors.request.use((ctx) => {
       if (ctx.method?.toLowerCase() === 'post') {
+        ctx.data = {
+          ...ctx.params,
+          ...ctx.data,
+        }
         ctx.params = {
           format: ctx.params?.format,
           formatversion: ctx.params?.formatversion,
+          origin:
+            encodeURIComponent(ctx.params?.origin)?.replace(/\./g, '%2E') || '',
         }
         const formData = new FormData()
         for (const key in ctx.data) {
@@ -165,7 +170,6 @@ export class MediaWikiApi {
   async parseWikitext(wikitext: string, page?: string): Promise<string> {
     const { data } = await this.post({
       action: 'parse',
-      contentmodel: 'wikitext',
       page,
       text: wikitext,
     })
@@ -182,7 +186,6 @@ export class MediaWikiForeignApi extends MediaWikiApi {
     this.defaultParams = {
       ...this.defaultParams,
       origin: location.origin,
-      '*': '',
     }
   }
 }

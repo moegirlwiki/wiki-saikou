@@ -1,5 +1,4 @@
-# spec:
-#   - test/**/*.spec.ts
+timeout: 10000
 extensions:
   - ts
 node-option:

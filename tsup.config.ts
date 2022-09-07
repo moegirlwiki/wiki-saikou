@@ -5,9 +5,9 @@ export default defineConfig({
   entry: ['src'],
   sourcemap: true,
   dts: true,
-  outDir: 'lib',
+  outDir: 'dist',
   target: ['es2018'],
   format: ['esm', 'cjs', 'iife'],
-  legacyOutput: true,
+  // legacyOutput: true,
   splitting: true,
 })
