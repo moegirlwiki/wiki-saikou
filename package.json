@@ -4,6 +4,10 @@
   "description": "mw-like MediaWiki Api wrapper for axios",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
+  "files": [
+    "dist",
+    "lib"
+  ],
   "type": "module",
   "scripts": {
     "test": "mocha test/**/*.spec.ts",
