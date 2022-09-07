@@ -2,33 +2,56 @@
  * @author Dragon-Fish <dragon-fish@qq.com>
  */
 
-import axios, { AxiosRequestConfig, AxiosResponse } from 'axios'
+import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios'
+import { effect, Ref, ref } from '@vue/reactivity'
 
 export class MediaWikiApi {
-  baseURL: string
-  userOptions?: AxiosRequestConfig<any>
-  defaultParams: ApiParams
-  #tokens: Record<string, string>
+  baseURL: Ref<string>
+  userOptions: Ref<AxiosRequestConfig<any>>
+  defaultParams: Ref<ApiParams>
+  #tokens: Ref<Record<string, string>>
+  ajax: AxiosInstance
 
   constructor(baseURL = '/api.php', options?: AxiosRequestConfig) {
-    this.baseURL = baseURL
-    this.userOptions = options
-    this.defaultParams = {
+    this.baseURL = ref(baseURL)
+    this.userOptions = ref(options || {})
+    this.defaultParams = ref({
       action: 'query',
       errorformat: 'plaintext',
       format: 'json',
       formatversion: 2,
-    }
-    this.#tokens = {}
+    })
+    this.#tokens = ref({})
+
+    this.ajax = this.initAjax({
+      baseURL: this.baseURL.value,
+      params: this.defaultParams.value,
+      options: this.userOptions.value,
+    })
+    effect(() => {
+      this.ajax = this.initAjax({
+        baseURL: this.baseURL.value,
+        params: this.defaultParams.value,
+        options: this.userOptions.value,
+      })
+    })
   }
 
   // AJAX
-  get ajax() {
+  initAjax({
+    baseURL,
+    params,
+    options,
+  }: {
+    baseURL: string
+    params: ApiParams
+    options: AxiosRequestConfig
+  }) {
     const instance = axios.create({
-      baseURL: this.baseURL,
+      baseURL,
       timeout: 30 * 1000,
-      params: this.defaultParams,
-      ...this.userOptions,
+      params,
+      ...options,
     })
     instance.interceptors.request.use((ctx) => {
       Object.keys(ctx.params).forEach((item) => {
@@ -116,10 +139,10 @@ export class MediaWikiApi {
   }
 
   async token(type = 'csrf', noCache = false) {
-    if (!this.#tokens[`${type}token`] || noCache) {
+    if (!this.#tokens.value[`${type}token`] || noCache) {
       await this.getTokens([type])
     }
-    return this.#tokens[`${type}token`]
+    return this.#tokens.value[`${type}token`]
   }
 
   post<T = any>(
@@ -138,7 +161,7 @@ export class MediaWikiApi {
       ...body,
     }).catch((data) => {
       if (data.code === 'badtoken') {
-        delete this.#tokens[`${tokenType}Token`]
+        delete this.#tokens.value[`${tokenType}Token`]
         return this.postWithToken(tokenType, body)
       }
       return Promise.reject(data)
@@ -186,8 +209,8 @@ export class MediaWikiForeignApi extends MediaWikiApi {
       withCredentials: true,
       ...options,
     })
-    this.defaultParams = {
-      ...this.defaultParams,
+    this.defaultParams.value = {
+      ...this.defaultParams.value,
       origin: location.origin,
     }
   }
