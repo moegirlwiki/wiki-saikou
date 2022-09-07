@@ -33,5 +33,7 @@ jobs:
           pnpm i
 
       - name: Run test
+        env:
+          MOEGIRL_API_USER_AGENT: ${{ secrets.MOEGIRL_API_USER_AGENT }}
         run: |
           pnpm test

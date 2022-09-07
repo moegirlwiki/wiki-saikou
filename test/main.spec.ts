@@ -1,8 +1,13 @@
 import { describe, it } from 'mocha'
 import { expect } from 'chai'
+import { env } from 'process'
 import { MediaWikiApi } from '../src'
 
-const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
+const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php', {
+  headers: {
+    'api-user-agent': env.MOEGIRL_API_USER_AGENT || '',
+  },
+})
 
 describe('MediaWikiApi', () => {
   it('[GET] siteinfo', async () => {
