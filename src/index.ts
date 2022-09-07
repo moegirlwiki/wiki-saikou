@@ -48,7 +48,10 @@ export class MediaWikiApi {
           format: ctx.params?.format,
           formatversion: ctx.params?.formatversion,
           origin:
-            encodeURIComponent(ctx.params?.origin)?.replace(/\./g, '%2E') || '',
+            encodeURIComponent(ctx.params?.origin || '')?.replace(
+              /\./g,
+              '%2E'
+            ) || undefined,
         }
         const formData = new FormData()
         for (const key in ctx.data) {
