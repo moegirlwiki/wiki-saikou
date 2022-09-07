@@ -1,0 +1,9 @@
+# spec:
+#   - test/**/*.spec.ts
+extensions:
+  - ts
+node-option:
+  - loader=ts-node/esm
+  - experimental-specifier-resolution=node
+require:
+  - ts-node/register
