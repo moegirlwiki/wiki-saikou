@@ -160,33 +160,48 @@ export class MediaWikiApi {
   }
 
   /** Token Handler */
-  async getTokens(type = ['csrf']) {
+  async getTokens(type: TokenType[] = ['csrf']) {
     const { data } = await this.get({
       action: 'query',
       meta: 'tokens',
-      type: type.join('|'),
+      type,
     })
     this.#tokens = { ...this.#tokens, ...data.query.tokens }
     return this.#tokens
   }
-  async token(type = 'csrf', noCache = false) {
+  async token(type: TokenType = 'csrf', noCache = false) {
     if (!this.#tokens[`${type}token`] || noCache) {
+      delete this.#tokens[`${type}token`]
       await this.getTokens([type])
     }
     return this.#tokens[`${type}token`]
   }
 
   async postWithToken(
-    tokenType: 'csrf' | 'patrol' | 'watch',
-    body: ApiParams
+    tokenType: TokenType,
+    body: ApiParams,
+    options?: { assert?: string; retry?: number; noCache?: boolean }
   ): Promise<AxiosResponse<any>> {
+    const { assert = 'token', retry = 3, noCache = false } = options || {}
+    if (retry < 1) {
+      return Promise.reject({
+        error: {
+          code: 'internal-retry-limit-exceeded',
+          info: 'The limit of the number of times to automatically re-acquire the token has been exceeded',
+        },
+      })
+    }
     return this.post({
-      token: await this.token(`${tokenType}Token`),
+      [assert]: await this.token(tokenType, noCache),
       ...body,
-    }).catch((data) => {
-      if (data.code === 'badtoken') {
-        delete this.#tokens[`${tokenType}Token`]
-        return this.postWithToken(tokenType, body)
+    }).catch(({ data }) => {
+      if ([data?.errors?.[0].code, data?.error?.code].includes('badtoken')) {
+        delete this.#tokens[`${tokenType}token`]
+        return this.postWithToken(tokenType, body, {
+          assert,
+          retry: retry - 1,
+          noCache: true,
+        })
       }
       return Promise.reject(data)
     })
@@ -242,3 +257,11 @@ export class MediaWikiForeignApi extends MediaWikiApi {
 
 type ValueOf<T> = T[keyof T]
 type ApiParams = Record<string, string | number | string[] | undefined>
+type TokenType =
+  | 'createaccount'
+  | 'csrf'
+  | 'login'
+  | 'patrol'
+  | 'rollback'
+  | 'userrights'
+  | 'watch'
