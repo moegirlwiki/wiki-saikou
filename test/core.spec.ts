@@ -52,8 +52,9 @@ describe('MediaWikiApi', () => {
   it('[CORE] reactivity', async () => {
     api.baseURL.value = 'https://commons.moegirl.org.cn/api.php'
     api.defaultParams = {
-      foo: 'bar',
+      key1: 'value1',
     }
+    api.defaultParams.key2 = 'value2'
     api.defaultOptions = {
       timeout: 114514,
     }
@@ -62,7 +63,8 @@ describe('MediaWikiApi', () => {
       'https://commons.moegirl.org.cn/api.php'
     )
     expect(api.ajax.defaults.params).to.deep.equal({
-      foo: 'bar',
+      key1: 'value1',
+      key2: 'value2',
     })
     expect(api.ajax.defaults.timeout).to.equal(114514)
   })
