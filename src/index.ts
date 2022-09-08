@@ -1,44 +1,48 @@
 /**
+ * MediaWiki Api for Axios
+ * Provides the API call methods similar to `mw.Api` at non-mw environments
+ *
  * @author Dragon-Fish <dragon-fish@qq.com>
+ * @license MIT
  */
 
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios'
-import { effect, Ref, ref } from '@vue/reactivity'
+import { Ref, ref, computed, ComputedRef } from '@vue/reactivity'
 
 export class MediaWikiApi {
   baseURL: Ref<string>
-  userOptions: Ref<AxiosRequestConfig<any>>
-  defaultParams: Ref<ApiParams>
-  #tokens: Ref<Record<string, string>>
-  ajax: AxiosInstance
+  #userOptions: Ref<AxiosRequestConfig<any>>
+  #defaultParams: Ref<ApiParams>
+  #tokens: Record<string, string>
+  #axiosInstance: ComputedRef<AxiosInstance>
 
   constructor(baseURL = '/api.php', options?: AxiosRequestConfig) {
+    // Init
     this.baseURL = ref(baseURL)
-    this.userOptions = ref(options || {})
-    this.defaultParams = ref({
+    this.#tokens = {}
+    this.#defaultParams = ref({})
+    this.#userOptions = ref({})
+
+    // Set default values
+    this.defaultParams = {
       action: 'query',
       errorformat: 'plaintext',
       format: 'json',
       formatversion: 2,
-    })
-    this.#tokens = ref({})
+    }
+    this.defaultOptions = options || {}
 
-    this.ajax = this.initAjax({
-      baseURL: this.baseURL.value,
-      params: this.defaultParams.value,
-      options: this.userOptions.value,
-    })
-    effect(() => {
-      this.ajax = this.initAjax({
+    // Init AxiosInstance
+    this.#axiosInstance = computed(() => {
+      return this._createAxiosInstance({
         baseURL: this.baseURL.value,
-        params: this.defaultParams.value,
-        options: this.userOptions.value,
+        params: this.#defaultParams.value,
+        options: this.#userOptions.value,
       })
     })
   }
 
-  // AJAX
-  initAjax({
+  _createAxiosInstance({
     baseURL,
     params,
     options,
@@ -98,6 +102,27 @@ export class MediaWikiApi {
     return instance
   }
 
+  /** Syntactic Sugar */
+  // AxiosInstance
+  get ajax() {
+    return this.#axiosInstance.value
+  }
+  // userOptions
+  get defaultOptions() {
+    return this.#userOptions.value
+  }
+  set defaultOptions(options: AxiosRequestConfig) {
+    this.#userOptions.value = options
+  }
+  // defaultParams
+  get defaultParams() {
+    return this.#defaultParams.value
+  }
+  set defaultParams(params: ApiParams) {
+    this.#defaultParams.value = params
+  }
+
+  /** Base methods encapsulation */
   get<T = any>(
     params: ApiParams,
     options?: AxiosRequestConfig
@@ -106,6 +131,12 @@ export class MediaWikiApi {
       params,
       ...options,
     })
+  }
+  post<T = any>(
+    data: ApiParams,
+    config?: AxiosRequestConfig
+  ): Promise<AxiosResponse<T>> {
+    return this.ajax.post('', data, config)
   }
 
   async getUserInfo(): Promise<{
@@ -128,6 +159,7 @@ export class MediaWikiApi {
     return data?.query?.userinfo
   }
 
+  /** Token Handler */
   async getTokens(type = ['csrf']) {
     const { data } = await this.get({
       action: 'query',
@@ -137,19 +169,11 @@ export class MediaWikiApi {
     this.#tokens = { ...this.#tokens, ...data.query.tokens }
     return this.#tokens
   }
-
   async token(type = 'csrf', noCache = false) {
-    if (!this.#tokens.value[`${type}token`] || noCache) {
+    if (!this.#tokens[`${type}token`] || noCache) {
       await this.getTokens([type])
     }
-    return this.#tokens.value[`${type}token`]
-  }
-
-  post<T = any>(
-    data: ApiParams,
-    config?: AxiosRequestConfig
-  ): Promise<AxiosResponse<T>> {
-    return this.ajax.post('', data, config)
+    return this.#tokens[`${type}token`]
   }
 
   async postWithToken(
@@ -161,7 +185,7 @@ export class MediaWikiApi {
       ...body,
     }).catch((data) => {
       if (data.code === 'badtoken') {
-        delete this.#tokens.value[`${tokenType}Token`]
+        delete this.#tokens[`${tokenType}Token`]
         return this.postWithToken(tokenType, body)
       }
       return Promise.reject(data)
@@ -204,13 +228,13 @@ export class MediaWikiApi {
 }
 
 export class MediaWikiForeignApi extends MediaWikiApi {
-  constructor(baseURL = '/api.php', options: any) {
+  constructor(baseURL = '/api.php', options?: AxiosRequestConfig) {
     super(baseURL, {
       withCredentials: true,
       ...options,
     })
-    this.defaultParams.value = {
-      ...this.defaultParams.value,
+    this.defaultParams = {
+      ...this.defaultParams,
       origin: location.origin,
     }
   }
