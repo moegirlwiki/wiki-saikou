@@ -11,7 +11,7 @@ import { Ref, ref, computed, ComputedRef } from '@vue/reactivity'
 
 export class MediaWikiApi {
   baseURL: Ref<string>
-  #userOptions: Ref<AxiosRequestConfig<any>>
+  #defaultOptions: Ref<AxiosRequestConfig<any>>
   #defaultParams: Ref<ApiParams>
   #tokens: Record<string, string>
   #axiosInstance: ComputedRef<AxiosInstance>
@@ -21,7 +21,7 @@ export class MediaWikiApi {
     this.baseURL = ref(baseURL)
     this.#tokens = {}
     this.#defaultParams = ref({})
-    this.#userOptions = ref({})
+    this.#defaultOptions = ref({})
 
     // Set default values
     this.defaultParams = {
@@ -37,7 +37,7 @@ export class MediaWikiApi {
       return MediaWikiApi.createAxiosInstance({
         baseURL: this.baseURL.value,
         params: this.#defaultParams.value,
-        options: this.#userOptions.value,
+        options: this.#defaultOptions.value,
       })
     })
   }
@@ -109,10 +109,10 @@ export class MediaWikiApi {
   }
   // userOptions
   get defaultOptions() {
-    return this.#userOptions.value
+    return this.#defaultOptions.value
   }
   set defaultOptions(options: AxiosRequestConfig) {
-    this.#userOptions.value = options
+    this.#defaultOptions.value = options
   }
   // defaultParams
   get defaultParams() {
