@@ -34,7 +34,7 @@ export class MediaWikiApi {
 
     // Init AxiosInstance
     this.#axiosInstance = computed(() => {
-      return this._createAxiosInstance({
+      return MediaWikiApi.createAxiosInstance({
         baseURL: this.baseURL.value,
         params: this.#defaultParams.value,
         options: this.#userOptions.value,
@@ -42,7 +42,7 @@ export class MediaWikiApi {
     })
   }
 
-  _createAxiosInstance({
+  static createAxiosInstance({
     baseURL,
     params,
     options,
