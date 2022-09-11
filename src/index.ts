@@ -1,34 +1,61 @@
 /**
+ * MediaWiki Api for Axios
+ * Provides the API call methods similar to `mw.Api` at non-mw environments
+ *
  * @author Dragon-Fish <dragon-fish@qq.com>
+ * @license MIT
  */
 
-import axios, { AxiosRequestConfig, AxiosResponse } from 'axios'
+import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios'
+import { Ref, ref, computed, ComputedRef } from '@vue/reactivity'
 
 export class MediaWikiApi {
-  baseURL: string
-  userOptions?: AxiosRequestConfig<any>
-  defaultParams: ApiParams
+  baseURL: Ref<string>
+  #defaultOptions: Ref<AxiosRequestConfig<any>>
+  #defaultParams: Ref<ApiParams>
   #tokens: Record<string, string>
+  #axiosInstance: ComputedRef<AxiosInstance>
 
   constructor(baseURL = '/api.php', options?: AxiosRequestConfig) {
-    this.baseURL = baseURL
-    this.userOptions = options
+    // Init
+    this.baseURL = ref(baseURL)
+    this.#tokens = {}
+    this.#defaultParams = ref({})
+    this.#defaultOptions = ref({})
+
+    // Set default values
     this.defaultParams = {
       action: 'query',
       errorformat: 'plaintext',
       format: 'json',
       formatversion: 2,
     }
-    this.#tokens = {}
+    this.defaultOptions = options || {}
+
+    // Init AxiosInstance
+    this.#axiosInstance = computed(() => {
+      return MediaWikiApi.createAxiosInstance({
+        baseURL: this.baseURL.value,
+        params: this.#defaultParams.value,
+        options: this.#defaultOptions.value,
+      })
+    })
   }
 
-  // AJAX
-  get ajax() {
+  static createAxiosInstance({
+    baseURL,
+    params,
+    options,
+  }: {
+    baseURL: string
+    params: ApiParams
+    options: AxiosRequestConfig
+  }) {
     const instance = axios.create({
-      baseURL: this.baseURL,
+      baseURL,
       timeout: 30 * 1000,
-      params: this.defaultParams,
-      ...this.userOptions,
+      params,
+      ...options,
     })
     instance.interceptors.request.use((ctx) => {
       Object.keys(ctx.params).forEach((item) => {
@@ -75,6 +102,27 @@ export class MediaWikiApi {
     return instance
   }
 
+  /** Syntactic Sugar */
+  // AxiosInstance
+  get ajax() {
+    return this.#axiosInstance.value
+  }
+  // userOptions
+  get defaultOptions() {
+    return this.#defaultOptions.value
+  }
+  set defaultOptions(options: AxiosRequestConfig) {
+    this.#defaultOptions.value = options
+  }
+  // defaultParams
+  get defaultParams() {
+    return this.#defaultParams.value
+  }
+  set defaultParams(params: ApiParams) {
+    this.#defaultParams.value = params
+  }
+
+  /** Base methods encapsulation */
   get<T = any>(
     params: ApiParams,
     options?: AxiosRequestConfig
@@ -83,6 +131,12 @@ export class MediaWikiApi {
       params,
       ...options,
     })
+  }
+  post<T = any>(
+    data: ApiParams,
+    config?: AxiosRequestConfig
+  ): Promise<AxiosResponse<T>> {
+    return this.ajax.post('', data, config)
   }
 
   async getUserInfo(): Promise<{
@@ -105,41 +159,49 @@ export class MediaWikiApi {
     return data?.query?.userinfo
   }
 
-  async getTokens(type = ['csrf']) {
+  /** Token Handler */
+  async getTokens(type: TokenType[] = ['csrf']) {
     const { data } = await this.get({
       action: 'query',
       meta: 'tokens',
-      type: type.join('|'),
+      type,
     })
     this.#tokens = { ...this.#tokens, ...data.query.tokens }
     return this.#tokens
   }
-
-  async token(type = 'csrf', noCache = false) {
+  async token(type: TokenType = 'csrf', noCache = false) {
     if (!this.#tokens[`${type}token`] || noCache) {
+      delete this.#tokens[`${type}token`]
       await this.getTokens([type])
     }
     return this.#tokens[`${type}token`]
   }
 
-  post<T = any>(
-    data: ApiParams,
-    config?: AxiosRequestConfig
-  ): Promise<AxiosResponse<T>> {
-    return this.ajax.post('', data, config)
-  }
-
   async postWithToken(
-    tokenType: 'csrf' | 'patrol' | 'watch',
-    body: ApiParams
+    tokenType: TokenType,
+    body: ApiParams,
+    options?: { assert?: string; retry?: number; noCache?: boolean }
   ): Promise<AxiosResponse<any>> {
+    const { assert = 'token', retry = 3, noCache = false } = options || {}
+    if (retry < 1) {
+      return Promise.reject({
+        error: {
+          code: 'internal-retry-limit-exceeded',
+          info: 'The limit of the number of times to automatically re-acquire the token has been exceeded',
+        },
+      })
+    }
     return this.post({
-      token: await this.token(`${tokenType}Token`),
+      [assert]: await this.token(tokenType, noCache),
       ...body,
-    }).catch((data) => {
-      if (data.code === 'badtoken') {
-        delete this.#tokens[`${tokenType}Token`]
-        return this.postWithToken(tokenType, body)
+    }).catch(({ data }) => {
+      if ([data?.errors?.[0].code, data?.error?.code].includes('badtoken')) {
+        delete this.#tokens[`${tokenType}token`]
+        return this.postWithToken(tokenType, body, {
+          assert,
+          retry: retry - 1,
+          noCache: true,
+        })
       }
       return Promise.reject(data)
     })
@@ -181,7 +243,7 @@ export class MediaWikiApi {
 }
 
 export class MediaWikiForeignApi extends MediaWikiApi {
-  constructor(baseURL = '/api.php', options: any) {
+  constructor(baseURL = '/api.php', options?: AxiosRequestConfig) {
     super(baseURL, {
       withCredentials: true,
       ...options,
@@ -195,3 +257,11 @@ export class MediaWikiForeignApi extends MediaWikiApi {
 
 type ValueOf<T> = T[keyof T]
 type ApiParams = Record<string, string | number | string[] | undefined>
+type TokenType =
+  | 'createaccount'
+  | 'csrf'
+  | 'login'
+  | 'patrol'
+  | 'rollback'
+  | 'userrights'
+  | 'watch'

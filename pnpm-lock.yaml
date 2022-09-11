@@ -5,6 +5,7 @@ specifiers:
   '@types/chai-as-promised': ^7.1.5
   '@types/mocha': ^9.1.1
   '@types/node': ^18.6.4
+  '@vue/reactivity': ^3.2.38
   axios: ^0.27.2
   chai: ^4.3.6
   chai-as-promised: ^7.1.1
@@ -19,6 +20,7 @@ specifiers:
   typescript: ^4.8.2
 
 dependencies:
+  '@vue/reactivity': 3.2.38
   axios: 0.27.2
 
 devDependencies:
@@ -156,6 +158,16 @@ packages:
   /@ungap/promise-all-settled/1.1.2:
     resolution: {integrity: sha512-sL/cEvJWAnClXw0wHk85/2L0G6Sj8UB0Ctc1TEMbKSsmpRosqhwj9gWgFRZSrBr2f9tiXISwNhCPmlfqUqyb9Q==}
     dev: true
+
+  /@vue/reactivity/3.2.38:
+    resolution: {integrity: sha512-6L4myYcH9HG2M25co7/BSo0skKFHpAN8PhkNPM4xRVkyGl1K5M3Jx4rp5bsYhvYze2K4+l+pioN4e6ZwFLUVtw==}
+    dependencies:
+      '@vue/shared': 3.2.38
+    dev: false
+
+  /@vue/shared/3.2.38:
+    resolution: {integrity: sha512-dTyhTIRmGXBjxJE+skC8tTWCGLCVc4wQgRRLt8+O9p5ewBAjoBwtCAkLPrtToSr1xltoe3st21Pv953aOZ7alg==}
+    dev: false
 
   /acorn-walk/8.2.0:
     resolution: {integrity: sha512-k+iyHEuPgSw6SbuDpGQM+06HQUa04DZ3o+F6CSzXMvvI5KMvnaEqXe+YVe555R9nn6GPt404fos4wcgpw12SDA==}

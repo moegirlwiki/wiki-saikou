@@ -3,7 +3,7 @@ import { expect } from 'chai'
 import { env } from 'process'
 import { MediaWikiApi } from '../src/index'
 import FormData from 'form-data'
-(globalThis as any).FormData = FormData
+;(globalThis as any).FormData = FormData
 
 const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php', {
   headers: {
@@ -22,11 +22,11 @@ describe('MediaWikiApi', () => {
 
   it('[GET] userinfo', async () => {
     const info = await api.getUserInfo()
-    expect(info.id).to.be.an('number')
+    expect(info.id).to.be.a('number')
     expect(info.groups).to.be.an('array')
   })
 
-  it('[GET] param as an array', async () => {
+  it('[GET] array as param', async () => {
     const { data } = await api.get({
       action: 'query',
       meta: ['siteinfo', 'userinfo'],
@@ -47,5 +47,25 @@ describe('MediaWikiApi', () => {
     expect(data.parse.text).to.includes('<b>bold</b>')
     expect(data.parse.text).to.includes('<i>italic</i>')
     expect(data.parse.links).to.be.an('array')
+  })
+
+  it('[CORE] reactivity', async () => {
+    api.baseURL.value = 'https://commons.moegirl.org.cn/api.php'
+    api.defaultParams = {
+      key1: 'value1',
+    }
+    api.defaultParams.key2 = 'value2'
+    api.defaultOptions = {
+      timeout: 114514,
+    }
+
+    expect(api.ajax.defaults.baseURL).to.equal(
+      'https://commons.moegirl.org.cn/api.php'
+    )
+    expect(api.ajax.defaults.params).to.deep.equal({
+      key1: 'value1',
+      key2: 'value2',
+    })
+    expect(api.ajax.defaults.timeout).to.equal(114514)
   })
 })

@@ -37,6 +37,7 @@
   },
   "homepage": "https://github.com/Dragon-Fish/mediawiki-api-axios#readme",
   "dependencies": {
+    "@vue/reactivity": "^3.2.38",
     "axios": "^0.27.2"
   },
   "devDependencies": {

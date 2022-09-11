@@ -28,7 +28,7 @@ describe('MediaWikiForeignApi', () => {
     expect(data.query.general.sitename).to.equal('萌娘共享')
   })
 
-  it('[GET] param as an array', async () => {
+  it('[GET] array as param', async () => {
     const { data, headers } = await api.get({
       action: 'query',
       meta: ['siteinfo', 'userinfo'],
