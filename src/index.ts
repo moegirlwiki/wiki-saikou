@@ -302,6 +302,8 @@ export class MediaWikiForeignApi extends MediaWikiApi {
   }
 }
 
+export default MediaWikiApi
+
 type ValueOf<T> = T[keyof T]
 type ApiParams = Record<
   string,

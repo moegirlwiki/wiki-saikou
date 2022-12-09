@@ -2,27 +2,26 @@
   "name": "mediawiki-api-axios",
   "version": "1.1.1",
   "description": "mw-like MediaWiki Api wrapper for axios",
-  "main": "lib/index.js",
-  "types": "lib/index.d.ts",
+  "main": "dist/index.cjs",
+  "types": "dist/index.d.ts",
   "files": [
-    "dist",
-    "lib"
+    "dist"
   ],
   "type": "module",
   "scripts": {
     "test": "mocha test/**/*.spec.ts",
     "clean": "rimraf dist lib",
-    "build": "npm run clean && tsc --module commonjs && tsup"
+    "build": "npm run clean && tsc --module commonjs && vite build"
   },
   "exports": {
     ".": {
-      "require": "./lib/index.js",
-      "import": "./dist/esm/index.js"
+      "require": "./dist/index.cjs",
+      "import": "./dist/index.js"
     }
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Dragon-Fish/mediawiki-api-axios.git"
+    "url": "git+https://github.com/moegirlwiki/mediawiki-api-axios.git"
   },
   "keywords": [
     "mediawiki",
@@ -33,9 +32,9 @@
   "author": "Dragon-Fish <dragon-fish@qq.com>",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/Dragon-Fish/mediawiki-api-axios/issues"
+    "url": "https://github.com/moegirlwiki/mediawiki-api-axios/issues"
   },
-  "homepage": "https://github.com/Dragon-Fish/mediawiki-api-axios#readme",
+  "homepage": "https://github.com/moegirlwiki/mediawiki-api-axios#readme",
   "dependencies": {
     "@vue/reactivity": "^3.2.38",
     "axios": "^0.27.2"
@@ -55,6 +54,8 @@
     "tslib": "^2.4.0",
     "tsup": "^6.2.2",
     "tsx": "^3.9.0",
-    "typescript": "^4.8.2"
+    "typescript": "^4.8.2",
+    "vite": "^4.0.0",
+    "vite-plugin-dts": "^1.7.1"
   }
 }
