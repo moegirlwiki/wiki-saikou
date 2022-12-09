@@ -24,8 +24,14 @@ jobs:
           npm i -g pnpm
           pnpm i
 
+      - name: Build
+        run: |
+          pnpm build
+
       - name: Run test
         env:
           MOEGIRL_API_USER_AGENT: ${{ secrets.MOEGIRL_API_USER_AGENT }}
+          MOEGIRL_USERNAME: ${{ secrets.MOEGIRL_USERNAME }}
+          MOEGIRL_PASSWORD: ${{ secrets.MOEGIRL_PASSWORD }}
         run: |
           pnpm test
