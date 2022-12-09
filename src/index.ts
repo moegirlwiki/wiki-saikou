@@ -169,6 +169,7 @@ export class MediaWikiApi {
     password: string,
     params?: ApiParams
   ): Promise<{ status: 'PASS' | 'FAIL'; username: string }> {
+    this.defaultOptions.withCredentials = true
     const { data } = await this.postWithToken(
       'login',
       {
@@ -204,6 +205,7 @@ export class MediaWikiApi {
 
   /** Token Handler */
   async getTokens(type: TokenType[] = ['csrf']) {
+    this.defaultOptions.withCredentials = true
     const { data } = await this.get({
       action: 'query',
       meta: 'tokens',
@@ -213,7 +215,6 @@ export class MediaWikiApi {
     return this.#tokens
   }
   async token(type: TokenType = 'csrf', noCache = false) {
-    this.defaultOptions.withCredentials = true
     if (!this.#tokens[`${type}token`] || noCache) {
       delete this.#tokens[`${type}token`]
       await this.getTokens([type])
@@ -235,23 +236,24 @@ export class MediaWikiApi {
         },
       })
     }
-    const params = {
+    return this.post({
       [tokenName]: await this.token(tokenType, noCache),
       ...body,
-    }
-    return this.post(params).catch(({ data }) => {
-      if ([data?.errors?.[0].code, data?.error?.code].includes('badtoken')) {
-        delete this.#tokens[`${tokenType}token`]
-        return this.postWithToken(tokenType, body, {
-          tokenName: tokenName,
-          retry: retry - 1,
-          noCache: true,
-        })
-      }
-      return Promise.reject(data)
     })
+      .finally(() => {
+        delete this.#tokens[`${tokenType}token`]
+      })
+      .catch(({ data }) => {
+        if ([data?.errors?.[0].code, data?.error?.code].includes('badtoken')) {
+          return this.postWithToken(tokenType, body, {
+            tokenName,
+            retry: retry - 1,
+            noCache: true,
+          })
+        }
+        return Promise.reject(data)
+      })
   }
-
   postWithEditToken(body: Record<string, string | number | string[]>) {
     return this.postWithToken('csrf', body)
   }
