@@ -15,6 +15,7 @@ export class MediaWikiApi {
   #defaultParams: Ref<ApiParams>
   #tokens: Record<string, string>
   #axiosInstance: ComputedRef<AxiosInstance>
+  cookies: Record<string, string> = {}
 
   constructor(baseURL = '/api.php', options?: AxiosRequestConfig) {
     // Init
@@ -34,14 +35,43 @@ export class MediaWikiApi {
 
     // Init AxiosInstance
     this.#axiosInstance = computed(() => {
-      return MediaWikiApi.createAxiosInstance({
+      const instance = MediaWikiApi.createAxiosInstance({
         baseURL: this.baseURL.value,
         params: this.#defaultParams.value,
         options: this.#defaultOptions.value,
       })
+      // Cookie handling for nodejs
+      if (!('document' in globalThis)) {
+        instance.interceptors.response.use((ctx) => {
+          const rawCookies = ctx.headers['set-cookie']
+          rawCookies?.forEach((i) => {
+            const [name, value = ''] = i.split(';')[0].split('=')
+            this.cookies[name] = value
+          })
+          return ctx
+        })
+        instance.interceptors.request.use((ctx) => {
+          ctx.headers = ctx.headers || {}
+          ctx.headers['cookie'] = ''
+          for (const name in this.cookies) {
+            ctx.headers['cookie'] += `${name}=${this.cookies[name]};`
+          }
+          return ctx
+        })
+      }
+      return instance
     })
   }
 
+  static adjustParamValue(item: ApiParams) {
+    if (Array.isArray(item)) {
+      return item.join('|')
+    } else if (typeof item === 'boolean') {
+      return item ? '' : undefined
+    } else {
+      return item
+    }
+  }
   static createAxiosInstance({
     baseURL,
     params,
@@ -59,9 +89,7 @@ export class MediaWikiApi {
     })
     instance.interceptors.request.use((ctx) => {
       Object.keys(ctx.params).forEach((item) => {
-        if (Array.isArray(ctx.params[item])) {
-          ctx.params[item] = ctx.params[item].join('|')
-        }
+        ctx.params[item] = MediaWikiApi.adjustParamValue(ctx.params[item])
       })
       return ctx
     })
@@ -82,12 +110,9 @@ export class MediaWikiApi {
         }
         const formData = new FormData()
         for (const key in ctx.data) {
-          formData.append(
-            key,
-            Array.isArray(ctx.data[key])
-              ? ctx.data[key].join('|')
-              : ctx.data[key]
-          )
+          const data = MediaWikiApi.adjustParamValue(ctx.data[key])
+          if (typeof data === 'undefined') continue
+          formData.append(key, data.toString())
         }
         ctx.data = formData
       }
@@ -139,6 +164,24 @@ export class MediaWikiApi {
     return this.ajax.post('', data, config)
   }
 
+  async login(
+    username: string,
+    password: string,
+    params?: ApiParams
+  ): Promise<{ status: 'PASS' | 'FAIL'; username: string }> {
+    const { data } = await this.postWithToken(
+      'login',
+      {
+        action: 'clientlogin',
+        loginreturnurl: this.baseURL.value,
+        username,
+        password,
+        ...params,
+      },
+      { tokenName: 'logintoken' }
+    )
+    return data.clientlogin
+  }
   async getUserInfo(): Promise<{
     id: number
     name: string
@@ -170,6 +213,7 @@ export class MediaWikiApi {
     return this.#tokens
   }
   async token(type: TokenType = 'csrf', noCache = false) {
+    this.defaultOptions.withCredentials = true
     if (!this.#tokens[`${type}token`] || noCache) {
       delete this.#tokens[`${type}token`]
       await this.getTokens([type])
@@ -180,9 +224,9 @@ export class MediaWikiApi {
   async postWithToken(
     tokenType: TokenType,
     body: ApiParams,
-    options?: { assert?: string; retry?: number; noCache?: boolean }
+    options?: { tokenName?: string; retry?: number; noCache?: boolean }
   ): Promise<AxiosResponse<any>> {
-    const { assert = 'token', retry = 3, noCache = false } = options || {}
+    const { tokenName = 'token', retry = 3, noCache = false } = options || {}
     if (retry < 1) {
       return Promise.reject({
         error: {
@@ -191,14 +235,15 @@ export class MediaWikiApi {
         },
       })
     }
-    return this.post({
-      [assert]: await this.token(tokenType, noCache),
+    const params = {
+      [tokenName]: await this.token(tokenType, noCache),
       ...body,
-    }).catch(({ data }) => {
+    }
+    return this.post(params).catch(({ data }) => {
       if ([data?.errors?.[0].code, data?.error?.code].includes('badtoken')) {
         delete this.#tokens[`${tokenType}token`]
         return this.postWithToken(tokenType, body, {
-          assert,
+          tokenName: tokenName,
           retry: retry - 1,
           noCache: true,
         })
@@ -256,7 +301,10 @@ export class MediaWikiForeignApi extends MediaWikiApi {
 }
 
 type ValueOf<T> = T[keyof T]
-type ApiParams = Record<string, string | number | string[] | undefined>
+type ApiParams = Record<
+  string,
+  string | number | string[] | undefined | boolean
+>
 type TokenType =
   | 'createaccount'
   | 'csrf'
