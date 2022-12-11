@@ -12,7 +12,7 @@ import { Ref, ref, computed, ComputedRef } from '@vue/reactivity'
 export class MediaWikiApi {
   baseURL: Ref<string>
   #defaultOptions: Ref<AxiosRequestConfig<any>>
-  #defaultParams: Ref<ApiParams>
+  #defaultParams: Ref<MwApiParams>
   #tokens: Record<string, string>
   #axiosInstance: ComputedRef<AxiosInstance>
   cookies: Record<string, string> = {}
@@ -63,7 +63,7 @@ export class MediaWikiApi {
     })
   }
 
-  static adjustParamValue(item: ApiParams) {
+  static adjustParamValue(item: MwApiParams) {
     if (Array.isArray(item)) {
       return item.join('|')
     } else if (typeof item === 'boolean') {
@@ -78,7 +78,7 @@ export class MediaWikiApi {
     options,
   }: {
     baseURL: string
-    params: ApiParams
+    params: MwApiParams
     options: AxiosRequestConfig
   }) {
     const instance = axios.create({
@@ -143,13 +143,13 @@ export class MediaWikiApi {
   get defaultParams() {
     return this.#defaultParams.value
   }
-  set defaultParams(params: ApiParams) {
+  set defaultParams(params: MwApiParams) {
     this.#defaultParams.value = params
   }
 
   /** Base methods encapsulation */
   get<T = any>(
-    params: ApiParams,
+    params: MwApiParams,
     options?: AxiosRequestConfig
   ): Promise<AxiosResponse<T>> {
     return this.ajax.get('', {
@@ -158,7 +158,7 @@ export class MediaWikiApi {
     })
   }
   post<T = any>(
-    data: ApiParams,
+    data: MwApiParams,
     config?: AxiosRequestConfig
   ): Promise<AxiosResponse<T>> {
     return this.ajax.post('', data, config)
@@ -167,7 +167,7 @@ export class MediaWikiApi {
   async login(
     username: string,
     password: string,
-    params?: ApiParams
+    params?: MwApiParams
   ): Promise<{ status: 'PASS' | 'FAIL'; username: string }> {
     this.defaultOptions.withCredentials = true
     const { data } = await this.postWithToken(
@@ -204,7 +204,7 @@ export class MediaWikiApi {
   }
 
   /** Token Handler */
-  async getTokens(type: TokenType[] = ['csrf']) {
+  async getTokens(type: MwTokenName[] = ['csrf']) {
     this.defaultOptions.withCredentials = true
     const { data } = await this.get({
       action: 'query',
@@ -214,7 +214,7 @@ export class MediaWikiApi {
     this.#tokens = { ...this.#tokens, ...data.query.tokens }
     return this.#tokens
   }
-  async token(type: TokenType = 'csrf', noCache = false) {
+  async token(type: MwTokenName = 'csrf', noCache = false) {
     if (!this.#tokens[`${type}token`] || noCache) {
       delete this.#tokens[`${type}token`]
       await this.getTokens([type])
@@ -223,8 +223,8 @@ export class MediaWikiApi {
   }
 
   async postWithToken(
-    tokenType: TokenType,
-    body: ApiParams,
+    tokenType: MwTokenName,
+    body: MwApiParams,
     options?: { tokenName?: string; retry?: number; noCache?: boolean }
   ): Promise<AxiosResponse<any>> {
     const { tokenName = 'token', retry = 3, noCache = false } = options || {}
@@ -254,11 +254,11 @@ export class MediaWikiApi {
         return Promise.reject(data)
       })
   }
-  postWithEditToken(body: Record<string, string | number | string[]>) {
+  postWithEditToken(body: MwApiParams) {
     return this.postWithToken('csrf', body)
   }
 
-  async getMessages(ammessages: string[], amlang = 'zh', options: ApiParams) {
+  async getMessages(ammessages: string[], amlang = 'zh', options: MwApiParams) {
     const { data } = await this.get({
       action: 'query',
       meta: 'allmessages',
@@ -302,14 +302,16 @@ export class MediaWikiForeignApi extends MediaWikiApi {
   }
 }
 
+// Aliases
 export default MediaWikiApi
+export { MediaWikiApi as MwApi, MediaWikiForeignApi as ForeignApi }
 
-type ValueOf<T> = T[keyof T]
-type ApiParams = Record<
+// Types
+export type MwApiParams = Record<
   string,
   string | number | string[] | undefined | boolean
 >
-type TokenType =
+export type MwTokenName =
   | 'createaccount'
   | 'csrf'
   | 'login'
