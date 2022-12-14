@@ -2,8 +2,8 @@
 
 # MediaWiki Api
 
-**~同时兼容浏览器&Node.js 环境~**<br>
-**~Support both browser and Node.js environment~**
+**- 同时兼容浏览器&Node.js 环境 -**<br>
+**- Support both browser and Node.js environment -**
 
 这个包实现了与原版 `new mw.Api()` 非常相似的 api 请求封装。让你在非 MediaWiki 环境中轻松实现各种 wiki 操作。<br>
 This library provides support for making requests to external api.php when not in the mw environment using methods very similar to the vanilla `new mw.Api()`
