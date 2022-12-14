@@ -2,8 +2,6 @@ import { describe, it } from 'mocha'
 import { expect } from 'chai'
 import { env } from 'process'
 import { MediaWikiForeignApi } from '../src/index'
-import FormData from 'form-data'
-;(globalThis as any).FormData = FormData
 ;(globalThis as any).location = new URL('https://zh.moegirl.org.cn/Mainpage')
 
 const api = new MediaWikiForeignApi('https://commons.moegirl.org.cn/api.php', {
