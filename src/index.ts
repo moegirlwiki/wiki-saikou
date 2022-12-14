@@ -108,13 +108,15 @@ export class MediaWikiApi {
               '%2E'
             ) || undefined,
         }
-        const formData = new FormData()
+        ctx.headers = ctx.headers || {}
+        ctx.headers['Content-Type'] = 'application/x-www-form-urlencoded'
+        const formData = new URLSearchParams('')
         for (const key in ctx.data) {
           const data = MediaWikiApi.adjustParamValue(ctx.data[key])
           if (typeof data === 'undefined') continue
           formData.append(key, data.toString())
         }
-        ctx.data = formData
+        ctx.data = formData.toString()
       }
       return ctx
     })
