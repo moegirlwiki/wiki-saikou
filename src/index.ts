@@ -23,7 +23,7 @@ export class MediaWikiApi {
       const scriptPath: string | undefined = (
         window as any
       ).mediaWiki?.config?.get('wgScriptPath')
-      scriptPath && (baseURL = `${scriptPath}/api.php`)
+      typeof scriptPath === 'string' && (baseURL = `${scriptPath}/api.php`)
     }
     if (typeof baseURL !== 'string') {
       throw new Error('baseURL is undefined')
