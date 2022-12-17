@@ -1,7 +1,7 @@
 {
-  "name": "mediawiki-api-axios",
+  "name": "mw-api",
   "version": "1.3.0",
-  "description": "mw-like MediaWiki Api wrapper for axios",
+  "description": "The library provides the out of box accessing to MediaWiki API in both browsers & Node.js, and the syntax is very similar to vanilla `new mw.Api()`. TypeScript definition included~",
   "main": "dist/index.cjs",
   "types": "dist/index.d.ts",
   "files": [
@@ -26,8 +26,13 @@
   },
   "keywords": [
     "mediawiki",
+    "wikipedia",
     "mediawiki-api",
+    "mediawiki-bot",
+    "browser",
+    "node",
     "api-wrapper",
+    "typescript",
     "axios"
   ],
   "author": "Dragon-Fish <dragon-fish@qq.com>",

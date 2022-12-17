@@ -5,8 +5,8 @@
 **- 同时兼容浏览器&Node.js 环境 -**<br>
 **- Support both browser and Node.js environment -**
 
-这个包实现了与原版 `new mw.Api()` 非常相似的 api 请求封装。让你在非 MediaWiki 环境中轻松实现各种 wiki 操作。<br>
-This library provides support for making requests to external api.php when not in the mw environment using methods very similar to the vanilla `new mw.Api()`
+本库提供了与原版 `new mw.Api()` 非常相似的 api 请求封装。让你在非 MediaWiki 环境中轻松实现各种 wiki 操作。使用 TypeScript 编写~<br>
+The library provides the out of box accessing to MediaWiki API in both browsers & Node.js, and the syntax is very similar to vanilla `new mw.Api()`. TypeScript definition included~
 
 </div>
 
@@ -25,30 +25,30 @@ This library provides support for making requests to external api.php when not i
 
 ```sh
 # Via pnpm:
-pnpm add mediawiki-api-axios
+pnpm add mw-api
 # Yarn? sure:
-yarn add mediawiki-api-axios
+yarn add mw-api
 # Or just npm:
-npm install mediawiki-api-axios
+npm install mw-api
 ```
 
 Then, import it to your project:
 
 ```ts
-import { MediaWikiApi } from 'mediawiki-api-axios'
-const api = new MediaWikiApi('http://zh.moegirl.org.cn/api.php')
+import { MediaWikiApi } from 'mw-api'
+const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
 // ...
 ```
 
 **在浏览器中直接使用/Use directly in the browser**
 
 ```ts
-import(
-  'https://unpkg.com/mediawiki-api-axios@latest/dist/index.js?module'
-).then(({ MediaWikiApi }) => {
-  const api = new MediaWikiApi('http://zh.moegirl.org.cn/api.php')
-  // ...
-})
+import('https://unpkg.com/mw-api@latest/dist/index.js?module').then(
+  ({ MediaWikiApi }) => {
+    const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
+    // ...
+  }
+)
 ```
 
 Then use it just like the `new mw.Api()`
@@ -65,9 +65,10 @@ Below is the documentation of MediaWikiApi.
 
 **Main methods**:
 
-#### Constructor `new MediaWikiApi(baseURL:string, options?: AxiosRequestConfig)`
+#### Constructor `new MediaWikiApi(baseURL?: string, options?: AxiosRequestConfig)`
 
 - `baseURL`: API endpoint of your target wiki site (e.g. https://mediawiki.org/w/api.php)
+  - **Not required but with conditions**: If you are using it in the browser environment, and the website runs MediaWiki. The instance will automatically use the API endpoint of current wiki.
 - `options`: {AxiosRequestConfig}
 
 #### `login(username: string, password: string): Promise<{ status: 'PASS' | 'FAIL'; username: string }>`

@@ -17,7 +17,17 @@ export class MediaWikiApi {
   #axiosInstance: ComputedRef<AxiosInstance>
   cookies: Record<string, string> = {}
 
-  constructor(baseURL = '/api.php', options?: AxiosRequestConfig) {
+  constructor(baseURL?: string, options?: AxiosRequestConfig) {
+    // For MediaWiki environment
+    if (!baseURL && typeof window === 'object' && (window as any).mediaWiki) {
+      const scriptPath: string | undefined = (
+        window as any
+      ).mediaWiki?.config?.get('wgScriptPath')
+      scriptPath && (baseURL = `${scriptPath}/api.php`)
+    }
+    if (!baseURL) {
+      throw new Error('baseURL is undefined')
+    }
     // Init
     this.baseURL = ref(baseURL)
     this.#tokens = {}
