@@ -25,17 +25,17 @@ The library provides the out of box accessing to MediaWiki API in both browsers 
 
 ```sh
 # Via pnpm:
-pnpm add mw-api
+pnpm add mediawiki-api-axios
 # Yarn? sure:
-yarn add mw-api
+yarn add mediawiki-api-axios
 # Or just npm:
-npm install mw-api
+npm install mediawiki-api-axios
 ```
 
 Then, import it to your project:
 
 ```ts
-import { MediaWikiApi } from 'mw-api'
+import { MediaWikiApi } from 'mediawiki-api-axios'
 const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
 // ...
 ```
@@ -43,7 +43,7 @@ const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
 **在浏览器中直接使用/Use directly in the browser**
 
 ```ts
-import('https://unpkg.com/mw-api@latest/dist/index.js?module').then(
+import('https://unpkg.com/mediawiki-api-axios@latest/dist/index.js?module').then(
   ({ MediaWikiApi }) => {
     const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
     // ...

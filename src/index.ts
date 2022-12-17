@@ -25,7 +25,7 @@ export class MediaWikiApi {
       ).mediaWiki?.config?.get('wgScriptPath')
       scriptPath && (baseURL = `${scriptPath}/api.php`)
     }
-    if (!baseURL) {
+    if (typeof baseURL !== 'string') {
       throw new Error('baseURL is undefined')
     }
     // Init
@@ -302,15 +302,12 @@ export class MediaWikiApi {
 }
 
 export class MediaWikiForeignApi extends MediaWikiApi {
-  constructor(baseURL = '/api.php', options?: AxiosRequestConfig) {
+  constructor(baseURL?: string, options?: AxiosRequestConfig) {
     super(baseURL, {
       withCredentials: true,
       ...options,
     })
-    this.defaultParams = {
-      ...this.defaultParams,
-      origin: location.origin,
-    }
+    this.defaultParams.origin = location.origin
   }
 }
 
