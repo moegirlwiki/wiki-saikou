@@ -15,12 +15,8 @@
     "build": "npm run clean && tsc --module commonjs && vite build",
     "prepublish": "npm run build"
   },
-  "exports": {
-    ".": {
-      "require": "./dist/index.cjs",
-      "import": "./dist/index.js"
-    }
-  },
+  "unpkg": "dist/index.js",
+  "jsdelivr": "dist/index.js",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/moegirlwiki/mediawiki-api-axios.git"
