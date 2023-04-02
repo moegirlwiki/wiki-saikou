@@ -1,8 +1,5 @@
 timeout: 10000
 extensions:
   - ts
-node-option:
-  - loader=ts-node/esm
-  - experimental-specifier-resolution=node
 require:
-  - ts-node/register
+  - esbuild-register
