@@ -1,6 +1,8 @@
 <div align="center">
 
-# MediaWiki Api
+# Wiki Saikou
+
+SUPER COOL api package for MediaWiki
 
 **- 同时兼容浏览器&Node.js 环境 -**<br>
 **- Support both browser and Node.js environment -**
@@ -25,17 +27,17 @@ The library provides the out of box accessing to MediaWiki API in both browsers 
 
 ```sh
 # Via pnpm:
-pnpm add mediawiki-api-axios
+pnpm add wiki-saikou
 # Yarn? sure:
-yarn add mediawiki-api-axios
+yarn add wiki-saikou
 # Or just npm:
-npm install mediawiki-api-axios
+npm install wiki-saikou
 ```
 
 Then, import it to your project:
 
 ```ts
-import { MediaWikiApi } from 'mediawiki-api-axios'
+import { MediaWikiApi } from 'wiki-saikou'
 const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
 // ...
 ```
@@ -43,12 +45,10 @@ const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
 **在浏览器中直接使用/Use directly in the browser**
 
 ```ts
-import('https://unpkg.com/mediawiki-api-axios@latest/dist/index.js?module').then(
-  ({ MediaWikiApi }) => {
-    const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
-    // ...
-  }
-)
+import('https://unpkg.com/wiki-saikou?module').then(({ MediaWikiApi }) => {
+  const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
+  // ...
+})
 ```
 
 Then use it just like the `new mw.Api()`
@@ -65,7 +65,7 @@ Below is the documentation of MediaWikiApi.
 
 **Main methods**:
 
-#### Constructor `new MediaWikiApi(baseURL?: string, options?: AxiosRequestConfig)`
+#### `new MediaWikiApi(baseURL?: string, options?: AxiosRequestConfig)`
 
 - `baseURL`: API endpoint of your target wiki site (e.g. https://mediawiki.org/w/api.php)
   - **Not required but with conditions**: If you are using it in the browser environment, and the website runs MediaWiki. The instance will automatically use the API endpoint of current wiki.
@@ -100,28 +100,28 @@ type MwTokenName =
 
 ### Auxiliary utilities
 
-#### `MediaWikiApi.ajax` {AxiosInstance} (getter)
+#### `get ajax` {AxiosInstance}
 
 Get `AxiosInstance` of current MediaWikiApi instance
 
-#### `MediaWikiApi#adjustParamValue(params: MwApiParams): Record<string: string>` (static)
+#### `MediaWikiApi.adjustParamValue(params: MwApiParams): Record<string: string>` (static)
 
 Adjust input params to standard MediaWiki request params.
 
 - `string[] → string`: `['foo', 'bar', 'baz'] → 'foo|bar|baz`
 - `false → undefined`: remove false items
 
-#### `MediaWikiApi#createAxiosInstance(payload: { baseURL: string; params: MwApiParams; options: AxiosRequestConfig })` (static)
+#### `MediaWikiApi.createAxiosInstance(payload: { baseURL: string; params: MwApiParams; options: AxiosRequestConfig })` (static)
 
 Create your own axios instance.
 
 **Warning: The instance created by this method does not include responsive getters/setters (described below) and the out of box cookie controls.**
 
-#### `MediaWikiApi.defaultOptions` {AxiosRequestOptions} (responsive\* getter/setter)
+#### `get/set defaultOptions` {AxiosRequestOptions} (responsive\* getter/setter)
 
 defaults: `{}`
 
-#### `MediaWikiApi.defaultParams` {MwApiParams} (responsive\* getter/setter)
+#### `get/set defaultParams` {MwApiParams} (responsive\* getter/setter)
 
 defaults:
 
