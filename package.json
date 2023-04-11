@@ -1,6 +1,6 @@
 {
   "name": "wiki-saikou",
-  "version": "1.3.4",
+  "version": "1.3.5",
   "description": "The library provides the out of box accessing to MediaWiki API in both browsers & Node.js, and the syntax is very similar to vanilla `new mw.Api()`. TypeScript definition included~",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
