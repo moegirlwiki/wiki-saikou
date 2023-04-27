@@ -55,8 +55,8 @@ export class MediaWikiApi {
         instance.interceptors.response.use((ctx) => {
           const rawCookies = ctx.headers['set-cookie']
           rawCookies?.forEach((i) => {
-            const [name, value = ''] = i.split(';')[0].split('=')
-            this.cookies[name] = value
+            const [name, ...value] = i.split(';')[0].split('=')
+            this.cookies[name] = value.join('=')
           })
           return ctx
         })
