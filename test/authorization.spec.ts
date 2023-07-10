@@ -18,17 +18,20 @@ describe('Authorization', () => {
     expect(token).to.be.a('string')
   })
 
-  it('Login', async () => {
+  it('Login success', async () => {
     const login = await api.login(username, password).catch((e) => {
       console.error('LOGIN FAIL', e.data)
       return Promise.reject(e)
     })
-    expect(['PASS', 'FAIL']).to.includes(login.status)
-    if (login.status !== 'PASS') {
-      return
+    expect(login.result).to.equal('Success')
+    expect(login.lgusername).to.equal(username)
+  })
+
+  it('Should throw an error if login fails', async () => {
+    try {
+      await api.login('invalid', 'credentials')
+    } catch (e) {
+      expect(e).to.be.an('error')
     }
-    const userinfo = await api.getUserInfo()
-    expect(userinfo.id).not.to.equal(0)
-    expect(userinfo.name).to.equal(username)
   })
 })

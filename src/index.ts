@@ -177,23 +177,36 @@ export class MediaWikiApi {
   }
 
   async login(
-    username: string,
-    password: string,
+    lgname: string,
+    lgpassword: string,
     params?: MwApiParams
-  ): Promise<{ status: 'PASS' | 'FAIL'; username: string }> {
+  ): Promise<{
+    result: 'Success' | 'NeedToken' | 'WrongToken' | 'Failed'
+    token?: string
+    reason?: {
+      code: string
+      text: string
+    }
+    lguserid: number
+    lgusername: string
+  }> {
     this.defaultOptions.withCredentials = true
     const { data } = await this.postWithToken(
       'login',
       {
-        action: 'clientlogin',
-        loginreturnurl: this.baseURL.value,
-        username,
-        password,
+        action: 'login',
+        lgname,
+        lgpassword,
         ...params,
       },
-      { tokenName: 'logintoken' }
+      { tokenName: 'lgtoken' }
     )
-    return data.clientlogin
+    if (data?.login?.result !== 'Success') {
+      throw new Error(
+        data?.login?.reason?.text || data?.login?.result || 'Login failed'
+      )
+    }
+    return data.login
   }
   async getUserInfo(): Promise<{
     id: number

@@ -8,6 +8,6 @@ export default defineConfig({
   outDir: 'dist',
   target: ['es2018'],
   format: ['esm', 'cjs', 'iife'],
-  // legacyOutput: true,
+  legacyOutput: true,
   splitting: true,
 })
