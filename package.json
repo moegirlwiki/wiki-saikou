@@ -16,6 +16,9 @@
     "build": "npm run clean && tsc --module commonjs && vite build",
     "prepublish": "npm run build"
   },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/moegirlwiki/wiki-saikou.git"
