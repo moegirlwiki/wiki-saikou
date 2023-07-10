@@ -44,8 +44,9 @@ const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
 
 **在浏览器中直接使用/Use directly in the browser**
 
-```ts
-import('https://unpkg.com/wiki-saikou?module').then(({ MediaWikiApi }) => {
+```js
+import('https://unpkg.com/wiki-saikou').then(() => {
+  const { MediaWikiApi } = globalThis.WikiSaikou
   const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
   // ...
 })
@@ -71,9 +72,9 @@ Below is the documentation of MediaWikiApi.
   - **Not required but with conditions**: If you are using it in the browser environment, and the website runs MediaWiki. The instance will automatically use the API endpoint of current wiki.
 - `options`: {AxiosRequestConfig}
 
-#### `login(username: string, password: string): Promise<{ status: 'PASS' | 'FAIL'; username: string }>`
+#### `login(username: string, password: string): Promise<{ result: 'Success' | 'Failed'; lguserid: number; lgusername: string }>`
 
-Login you account.
+Login your account.
 
 #### `get<T = any>(params: MwApiParams, options?: AxiosRequestConfig): Promise<AxiosResponse<T>>`
 

@@ -7,6 +7,7 @@ export default defineConfig({
   dts: true,
   outDir: 'dist',
   target: ['es2018'],
+  globalName: 'WikiSaikou',
   format: ['esm', 'cjs', 'iife'],
   legacyOutput: true,
   splitting: true,

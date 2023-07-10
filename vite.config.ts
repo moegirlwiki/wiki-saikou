@@ -5,10 +5,10 @@ import dts from 'vite-plugin-dts'
 export default defineConfig({
   build: {
     lib: {
-      name: 'MediaWikiApi',
+      name: 'WikiSaikou',
       fileName: 'index',
       entry: resolve(__dirname, 'src/index.ts'),
-      formats: ['cjs', 'es', 'iife', 'umd'],
+      formats: ['umd'],
     },
     sourcemap: true,
   },
