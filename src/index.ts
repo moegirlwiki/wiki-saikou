@@ -304,11 +304,11 @@ export class MediaWikiApi {
     return result
   }
 
-  async parseWikitext(wikitext: string, page?: string): Promise<string> {
+  async parseWikitext(page?: string, pageid?: string): Promise<string> {
     const { data } = await this.post({
       action: 'parse',
       page,
-      text: wikitext,
+      pageid,
     })
     return data.parse.text
   }
