@@ -65,10 +65,22 @@ export const adapter: LylaAdapter<LylaAdapterMeta> = ({
   })
 
   request.then(async (response) => {
-    let body = await response
-      .clone()
-      .json()
-      .catch(() => response.clone().text())
+    let body: any
+    if (responseType === 'blob') {
+      try {
+        body = await response.clone().blob()
+      } catch (error) {}
+    } else if (responseType === 'arraybuffer') {
+      try {
+        body = await response.clone().arrayBuffer()
+      } catch (error) {}
+    }
+    if (!body) {
+      body = await response
+        .clone()
+        .json()
+        .catch(() => response.clone().text())
+    }
 
     onResponse(
       {
