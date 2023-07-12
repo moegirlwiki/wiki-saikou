@@ -7,11 +7,17 @@
  */
 
 import { Ref, ref, computed, ComputedRef } from '@vue/reactivity'
-import { createLyla } from './modules/lyla-adapter-fetch'
-import { LylaRequestOptions, LylaResponse } from '@lylajs/core'
+import {
+  LylaAdapterMeta,
+  createLyla,
+  LylaRequestOptions,
+  LylaResponse,
+} from './modules/lyla-adapter-fetch'
+import { Lyla } from '@lylajs/core'
 
 export class MediaWikiApi {
   baseURL: Ref<string>
+  #requestHandler: ComputedRef<Lyla<any, LylaAdapterMeta>>
   #defaultOptions: Ref<LylaRequestOptions>
   #defaultParams: Ref<MwApiParams>
   #tokens: Record<string, string>
@@ -42,6 +48,56 @@ export class MediaWikiApi {
       formatversion: 2,
     }
     this.defaultOptions = options || {}
+
+    this.#requestHandler = computed(() => {
+      const options: LylaRequestOptions = {
+        ...this.defaultOptions,
+      }
+
+      options.hooks ??= {}
+      options.hooks.onInit ??= []
+      options.hooks.onBeforeRequest ??= []
+      options.hooks.onAfterResponse ??= []
+
+      // Inject default query params
+      options.hooks.onInit?.unshift((ctx) => {
+        // @ts-ignore FIXME: Type error during vite build, too bad!
+        ctx.query = {
+          ...this.defaultParams,
+          ...ctx.query,
+        }
+
+        // Fix missing baseURL
+        !ctx.url && (ctx.url = this.baseURL.value)
+
+        return ctx
+      })
+
+      // Handle cookies for Node.js
+      if (!('document' in globalThis)) {
+        options.hooks.onBeforeRequest.push((ctx) => {
+          ctx.headers = ctx.headers || {}
+          ctx.headers['cookie'] = ''
+          for (const name in this.cookies) {
+            ctx.headers['cookie'] += `${name}=${this.cookies[name]};`
+          }
+          return ctx
+        })
+        options.hooks.onAfterResponse.push((ctx) => {
+          const cookieHeaders = (ctx.detail.headers as Headers).get(
+            'set-cookie'
+          )
+          const rawCookies = cookieHeaders?.split(',').map((i) => i.trim())
+          rawCookies?.forEach((i) => {
+            const [name, ...value] = i.split(';')[0].split('=')
+            this.cookies[name] = value.join('=')
+          })
+          return ctx
+        })
+      }
+
+      return MediaWikiApi.createLylaInstance(this.baseURL.value, options)
+    })
   }
 
   static adjustParamValue(item: MwApiParams[keyof MwApiParams]) {
@@ -55,11 +111,7 @@ export class MediaWikiApi {
       return item
     }
   }
-  static createLylaInstance(
-    baseURL: string,
-    options: LylaRequestOptions = {},
-    requestInit?: RequestInit
-  ) {
+  static createLylaInstance(baseURL: string, options: LylaRequestOptions = {}) {
     options.hooks ??= {}
     options.hooks.onInit ??= []
     options.hooks.onBeforeRequest ??= []
@@ -111,14 +163,6 @@ export class MediaWikiApi {
         body.has('origin') && (ctx.query.origin = '' + body.get('origin'))
       }
 
-      // Adjust origin
-      if (ctx.query?.origin) {
-        ctx.query.origin = encodeURIComponent(ctx.query?.origin).replace(
-          /\./g,
-          '%2E'
-        )
-      }
-
       // console.info(
       //   '[onBeforeRequest] afterTransform',
       //   ctx.method,
@@ -140,13 +184,19 @@ export class MediaWikiApi {
           ctx.query[key] = '' + data
         }
       }
+      // Adjust origin
+      if (ctx.query?.origin) {
+        ctx.query.origin = encodeURIComponent(ctx.query?.origin).replace(
+          /\./g,
+          '%2E'
+        )
+      }
       return ctx
     })
 
     // @ts-ignore FIXME: Type error during vite build, too bad!
     const { lyla } = createLyla({
       baseUrl: baseURL,
-      context: { requestInit },
       ...options,
     })
 
@@ -154,48 +204,9 @@ export class MediaWikiApi {
   }
 
   /** Syntactic Sugar */
-  // AxiosInstance
-  get ajax() {
-    const options: LylaRequestOptions = {
-      ...this.defaultOptions,
-    }
-
-    options.hooks ??= {}
-    options.hooks.onInit ??= []
-    options.hooks.onBeforeRequest ??= []
-    options.hooks.onAfterResponse ??= []
-
-    options.hooks.onInit?.unshift((ctx) => {
-      // @ts-ignore FIXME: Type error during vite build, too bad!
-      ctx.query = {
-        ...this.defaultParams,
-        ...ctx.query,
-      }
-      return ctx
-    })
-
-    // Handle cookies for Node.js
-    if (!('document' in globalThis)) {
-      options.hooks.onBeforeRequest.push((ctx) => {
-        ctx.headers = ctx.headers || {}
-        ctx.headers['cookie'] = ''
-        for (const name in this.cookies) {
-          ctx.headers['cookie'] += `${name}=${this.cookies[name]};`
-        }
-        return ctx
-      })
-      options.hooks.onAfterResponse.push((ctx) => {
-        const cookieHeaders = (ctx.detail.headers as Headers).get('set-cookie')
-        const rawCookies = cookieHeaders?.split(',').map((i) => i.trim())
-        rawCookies?.forEach((i) => {
-          const [name, ...value] = i.split(';')[0].split('=')
-          this.cookies[name] = value.join('=')
-        })
-        return ctx
-      })
-    }
-
-    return MediaWikiApi.createLylaInstance(this.baseURL.value, options)
+  // request handler
+  get request() {
+    return this.#requestHandler.value
   }
   // userOptions
   get defaultOptions() {
@@ -213,18 +224,14 @@ export class MediaWikiApi {
   }
 
   /** Base methods encapsulation */
-  // @ts-ignore FIXME: Type error during vite build, too bad!
   get<T = any>(query: MwApiParams, options?: LylaRequestOptions) {
-    // @ts-ignore FIXME: Type error during vite build, too bad!
-    return this.ajax.get<T>(this.baseURL.value, {
+    return this.request.get<T>(this.baseURL.value, {
       query: query as any,
       ...options,
     })
   }
-  // @ts-ignore FIXME: Type error during vite build, too bad!
   post<T = any>(data: MwApiParams, options?: LylaRequestOptions) {
-    // @ts-ignore FIXME: Type error during vite build, too bad!
-    return this.ajax.post<T>(this.baseURL.value, {
+    return this.request.post<T>(this.baseURL.value, {
       json: data,
       ...options,
     })
@@ -315,7 +322,6 @@ export class MediaWikiApi {
         },
       })
     }
-    // @ts-ignore FIXME: Type error during vite build, too bad!
     return this.post<T>({
       [tokenName]: await this.token(tokenType, noCache),
       ...body,
@@ -334,8 +340,8 @@ export class MediaWikiApi {
         return Promise.reject(data)
       })
   }
-  postWithEditToken(body: MwApiParams) {
-    return this.postWithToken('csrf', body)
+  postWithEditToken<T = any>(body: MwApiParams) {
+    return this.postWithToken<T>('csrf', body)
   }
 
   async getMessages(ammessages: string[], amlang = 'zh', options: MwApiParams) {
