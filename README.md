@@ -45,8 +45,7 @@ const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
 **在浏览器中直接使用/Use directly in the browser**
 
 ```js
-import('https://unpkg.com/wiki-saikou').then(() => {
-  const { MediaWikiApi } = globalThis.WikiSaikou
+import('https://unpkg.com/wiki-saikou?module').then(({ MediaWikiApi }) => {
   const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
   // ...
 })
