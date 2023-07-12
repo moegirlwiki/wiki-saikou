@@ -13,7 +13,11 @@ import {
   LylaRequestOptions,
   LylaResponse,
 } from './modules/lyla-adapter-fetch'
-import { Lyla } from '@lylajs/core'
+import { Lyla, LylaResponse as LylaCoreResponse } from '@lylajs/core'
+
+type LylaResponseWith<T> = LylaCoreResponse<T, any, LylaAdapterMeta<T>> & {
+  data: T
+}
 
 export class MediaWikiApi {
   baseURL: Ref<string>
@@ -200,6 +204,21 @@ export class MediaWikiApi {
       return ctx
     })
 
+    /**
+     * @deprecated response.data shortcut compatibility
+     */
+    options.hooks.onAfterResponse.push((ctx) => {
+      Object.defineProperty(ctx, 'data', {
+        get() {
+          console.trace(
+            '[WikiSaikou] response.data is deprecated, use response.body instead'
+          )
+          return ctx.body
+        },
+      })
+      return ctx
+    })
+
     // @ts-ignore FIXME: Type error during vite build, too bad!
     const { lyla } = createLyla({
       baseUrl: baseURL,
@@ -234,13 +253,13 @@ export class MediaWikiApi {
     return this.request.get<T>(this.baseURL.value, {
       query: query as any,
       ...options,
-    })
+    }) as Promise<LylaResponseWith<T>>
   }
   post<T = any>(data: MwApiParams, options?: LylaRequestOptions) {
     return this.request.post<T>(this.baseURL.value, {
       json: data,
       ...options,
-    })
+    }) as Promise<LylaResponseWith<T>>
   }
 
   async login(

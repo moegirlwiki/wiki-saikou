@@ -59,6 +59,11 @@ describe('MediaWikiApi', () => {
     expect(body.parse.links).to.be.an('array')
   })
 
+  it('[CORE] response.data shortcut compatibility', async () => {
+    const { data } = await api.get({ action: 'query', meta: 'siteinfo' })
+    expect(data.query.general).to.be.an('object')
+  })
+
   // it('[CORE] reactivity', async () => {
   //   api.baseURL.value = 'https://commons.moegirl.org.cn/api.php'
   //   api.defaultParams = {
