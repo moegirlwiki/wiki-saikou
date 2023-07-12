@@ -371,10 +371,10 @@ export class MediaWikiApi {
     return result
   }
 
-  async parseWikitext(wikitext: string, page?: string): Promise<string> {
+  async parseWikitext(wikitext: string, title?: string): Promise<string> {
     const { body } = await this.post({
       action: 'parse',
-      page,
+      title,
       text: wikitext,
     })
     return body.parse.text
