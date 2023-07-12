@@ -8,10 +8,11 @@ export default defineConfig({
       name: 'WikiSaikou',
       fileName: 'index',
       entry: resolve(__dirname, 'src/index.ts'),
-      formats: ['umd'],
+      formats: ['umd', 'es', 'iife'],
     },
     sourcemap: true,
   },
+  esbuild: {},
   define: {
     // @FIX Uncaught ReferenceError: process is not defined
     // @link https://github.com/vitejs/vite/issues/9186

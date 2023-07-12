@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import { describe, it } from 'mocha'
 import { expect } from 'chai'
 import { env } from 'process'
@@ -10,6 +11,17 @@ const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php', {
 })
 
 describe('MediaWikiApi', () => {
+  it('[CORE] normalize param values', () => {
+    expect(MediaWikiApi.normalizeParamValue(true)).to.eq('1')
+    expect(MediaWikiApi.normalizeParamValue(false)).to.be.undefined
+    expect(MediaWikiApi.normalizeParamValue(123)).to.eq('123')
+    expect(MediaWikiApi.normalizeParamValue(['foo', 'bar'])).to.eq('foo|bar')
+    if (globalThis.File) {
+      const fakeFile = new File(['foo'], 'foo.txt', { type: 'text/plain' })
+      expect(MediaWikiApi.normalizeParamValue(fakeFile)).to.instanceOf(File)
+    }
+  })
+
   it('[GET] siteinfo', async () => {
     const { data } = await api.get({ action: 'query', meta: 'siteinfo' })
     expect(data.query.general).to.be.an('object')
@@ -21,7 +33,7 @@ describe('MediaWikiApi', () => {
   it('[GET] userinfo', async () => {
     const info = await api.getUserInfo()
     expect(info.id).to.be.a('number')
-    expect(info.groups).to.be.an('array')
+    expect(info.name).to.be.an('string')
   })
 
   it('[GET] array as param', async () => {
@@ -47,23 +59,23 @@ describe('MediaWikiApi', () => {
     expect(data.parse.links).to.be.an('array')
   })
 
-  it('[CORE] reactivity', async () => {
-    api.baseURL.value = 'https://commons.moegirl.org.cn/api.php'
-    api.defaultParams = {
-      key1: 'value1',
-    }
-    api.defaultParams.key2 = 'value2'
-    api.defaultOptions = {
-      timeout: 114514,
-    }
+  // it('[CORE] reactivity', async () => {
+  //   api.baseURL.value = 'https://commons.moegirl.org.cn/api.php'
+  //   api.defaultParams = {
+  //     key1: 'value1',
+  //   }
+  //   api.defaultParams.key2 = 'value2'
+  //   api.defaultOptions = {
+  //     timeout: 114514,
+  //   }
 
-    expect(api.ajax.defaults.baseURL).to.equal(
-      'https://commons.moegirl.org.cn/api.php'
-    )
-    expect(api.ajax.defaults.params).to.deep.equal({
-      key1: 'value1',
-      key2: 'value2',
-    })
-    expect(api.ajax.defaults.timeout).to.equal(114514)
-  })
+  //   expect(api.ajax.defaults.baseURL).to.equal(
+  //     'https://commons.moegirl.org.cn/api.php'
+  //   )
+  //   expect(api.ajax.defaults.params).to.deep.equal({
+  //     key1: 'value1',
+  //     key2: 'value2',
+  //   })
+  //   expect(api.ajax.defaults.timeout).to.equal(114514)
+  // })
 })

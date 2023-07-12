@@ -6,18 +6,28 @@
  * @license MIT
  */
 
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios'
 import { Ref, ref, computed, ComputedRef } from '@vue/reactivity'
+import {
+  LylaAdapterMeta,
+  createLyla,
+  LylaRequestOptions,
+  LylaResponse,
+} from './modules/lyla-adapter-fetch'
+import { Lyla } from '@lylajs/core'
+
+type LylaResponseWith<T> = LylaResponse<T> & {
+  data: T
+}
 
 export class MediaWikiApi {
   baseURL: Ref<string>
-  #defaultOptions: Ref<AxiosRequestConfig<any>>
+  #requestHandler: ComputedRef<Lyla<any, LylaAdapterMeta>>
+  #defaultOptions: Ref<LylaRequestOptions>
   #defaultParams: Ref<MwApiParams>
   #tokens: Record<string, string>
-  #axiosInstance: ComputedRef<AxiosInstance>
   cookies: Record<string, string> = {}
 
-  constructor(baseURL?: string, options?: AxiosRequestConfig) {
+  constructor(baseURL?: string, options?: LylaRequestOptions) {
     // For MediaWiki environment
     if (!baseURL && typeof window === 'object' && (window as any).mediaWiki) {
       const scriptPath: string | undefined = (
@@ -43,112 +53,200 @@ export class MediaWikiApi {
     }
     this.defaultOptions = options || {}
 
-    // Init AxiosInstance
-    this.#axiosInstance = computed(() => {
-      const instance = MediaWikiApi.createAxiosInstance({
-        baseURL: this.baseURL.value,
-        params: this.#defaultParams.value,
-        options: this.#defaultOptions.value,
+    this.#requestHandler = computed(() => {
+      const options: LylaRequestOptions = {
+        ...this.#defaultOptions.value,
+      }
+
+      options.hooks ??= {}
+      options.hooks.onInit ??= []
+      options.hooks.onBeforeRequest ??= []
+      options.hooks.onAfterResponse ??= []
+
+      // Inject default query params
+      options.hooks.onInit?.unshift((ctx) => {
+        // @ts-ignore FIXME: Type error during vite build, too bad!
+        ctx.query = {
+          ...this.#defaultParams.value,
+          ...ctx.query,
+        }
+
+        // Fix baseURL
+        !ctx.url && (ctx.url = this.baseURL.value)
+        try {
+          ctx.url = new URL(
+            ctx.url,
+            this.baseURL.value.startsWith('http')
+              ? this.baseURL.value
+              : globalThis.location?.href
+          ).toString()
+        } catch (_) {}
+
+        return ctx
       })
-      // Cookie handling for nodejs
+
+      // Handle cookies for Node.js
       if (!('document' in globalThis)) {
-        instance.interceptors.response.use((ctx) => {
-          const rawCookies = ctx.headers['set-cookie']
+        options.hooks.onBeforeRequest.push((ctx) => {
+          ctx.headers = ctx.headers || {}
+          ctx.headers['cookie'] = Object.keys(this.cookies)
+            .map((name) => `${name}=${this.cookies[name]}`)
+            .join(';')
+          return ctx
+        })
+        options.hooks.onAfterResponse.push((ctx) => {
+          const cookieHeaders = (ctx.detail.headers as Headers).get(
+            'set-cookie'
+          )
+          const rawCookies = cookieHeaders?.split(',').map((i) => i.trim())
           rawCookies?.forEach((i) => {
             const [name, ...value] = i.split(';')[0].split('=')
             this.cookies[name] = value.join('=')
           })
           return ctx
         })
-        instance.interceptors.request.use((ctx) => {
-          ctx.headers = ctx.headers || {}
-          ctx.headers['cookie'] = ''
-          for (const name in this.cookies) {
-            ctx.headers['cookie'] += `${name}=${this.cookies[name]};`
-          }
-          return ctx
-        })
       }
-      return instance
+
+      return MediaWikiApi.createLylaInstance(this.baseURL.value, options)
     })
   }
 
-  static adjustParamValue(item: MwApiParams) {
+  static normalizeParamValue(item: MwApiParams[keyof MwApiParams]) {
     if (Array.isArray(item)) {
       return item.join('|')
     } else if (typeof item === 'boolean') {
-      return item ? '' : undefined
+      return item ? '1' : undefined
+    } else if (typeof item === 'number') {
+      return '' + item
     } else {
       return item
     }
   }
-  static createAxiosInstance({
-    baseURL,
-    params,
-    options,
-  }: {
-    baseURL: string
-    params: MwApiParams
-    options: AxiosRequestConfig
-  }) {
-    const instance = axios.create({
-      baseURL,
-      timeout: 30 * 1000,
-      params,
-      ...options,
+  static createLylaInstance(baseURL: string, options: LylaRequestOptions = {}) {
+    options.hooks ??= {}
+    options.hooks.onInit ??= []
+    options.hooks.onBeforeRequest ??= []
+    options.hooks.onAfterResponse ??= []
+    options.hooks.onResponseError ??= []
+
+    options.hooks.onInit.push((ctx) => {
+      // console.info(
+      //   '[onInit] beforeTransform',
+      //   ctx.method,
+      //   ctx.url,
+      //   ctx.query,
+      //   ctx.body
+      // )
+
+      if (ctx.method?.toLowerCase() !== 'post') {
+        return ctx
+      }
+
+      // Transform json to formdata
+      if (ctx.json) {
+        const form = new URLSearchParams('')
+        for (const key in ctx.json) {
+          const data = MediaWikiApi.normalizeParamValue(ctx.json[key])
+          if (typeof data === 'undefined') continue
+          form.append(key, '' + data)
+        }
+        ctx.body = form
+        ctx.json = undefined
+      }
+
+      if (
+        (globalThis.FormData && ctx.body instanceof FormData) ||
+        ctx.body instanceof URLSearchParams
+      ) {
+        const body = ctx.body
+        // Adjust params
+        body.forEach((value, key) => {
+          const data = MediaWikiApi.normalizeParamValue(value)
+          if (typeof data === 'undefined' || data === null) {
+            body.delete(key)
+          } else if (data !== value) {
+            body.set(key, data as any)
+          }
+        })
+        // Adjust query
+        ctx.query ??= {}
+        ctx.query.format ??= '' + body.get('format') || 'json'
+        ctx.query.formatversion ??= '' + body.get('formatversion') || '2'
+        body.has('origin') && (ctx.query.origin = '' + body.get('origin'))
+      }
+
+      return ctx
     })
-    instance.interceptors.request.use((ctx) => {
-      Object.keys(ctx.params).forEach((item) => {
-        ctx.params[item] = MediaWikiApi.adjustParamValue(ctx.params[item])
+
+    // Adjust query
+    options.hooks.onInit.push((ctx) => {
+      ctx.query ??= {}
+      for (const key in ctx.query) {
+        const data = MediaWikiApi.normalizeParamValue(ctx.query[key])
+        if (typeof data === 'undefined' || data === null) {
+          delete ctx.query[key]
+        } else if (data !== ctx.query[key]) {
+          ctx.query[key] = '' + data
+        }
+      }
+
+      // console.info('[onInit]', ctx.method?.toUpperCase(), ctx.url, {
+      //   query: ctx.query,
+      //   body: ctx.body,
+      //   headers: ctx.headers,
+      // })
+      return ctx
+    })
+
+    // Adjust origin param
+    options.hooks.onBeforeRequest.push((ctx) => {
+      const url = new URL(ctx.url!)
+      if (url.searchParams.has('origin')) {
+        const origin = encodeURIComponent(
+          url.searchParams.get('origin') || ''
+        ).replace(/\./g, '%2E')
+        delete ctx.query
+        url.searchParams.delete('origin')
+        ctx.url = `${url}${url.search ? '&' : '?'}origin=${origin}`
+      }
+      return ctx
+    })
+
+    /**
+     * response.data shortcut compatibility
+     */
+    options.hooks.onAfterResponse.push((ctx) => {
+      Object.defineProperty(ctx, 'data', {
+        get() {
+          try {
+            return JSON.parse(ctx.body as string)
+          } catch (_) {
+            return ctx.body
+          }
+        },
       })
       return ctx
     })
-    instance.interceptors.request.use((ctx) => {
-      if (ctx.method?.toLowerCase() === 'post') {
-        ctx.data = {
-          ...ctx.params,
-          ...ctx.data,
-        }
-        ctx.params = {
-          format: ctx.params?.format,
-          formatversion: ctx.params?.formatversion,
-          origin:
-            encodeURIComponent(ctx.params?.origin || '')?.replace(
-              /\./g,
-              '%2E'
-            ) || undefined,
-        }
-        ctx.headers = ctx.headers || {}
-        ctx.headers['content-type'] = 'application/x-www-form-urlencoded'
-        const body = new URLSearchParams('')
-        for (const key in ctx.data) {
-          const data = MediaWikiApi.adjustParamValue(ctx.data[key])
-          if (typeof data === 'undefined') continue
-          body.append(key, data.toString())
-        }
-        ctx.data = body.toString()
-      }
-      return ctx
+
+    // @ts-ignore FIXME: Type error during vite build, too bad!
+    const { lyla } = createLyla({
+      baseUrl: baseURL,
+      ...options,
     })
-    instance.interceptors.response.use((ctx) => {
-      if (ctx.data?.error || ctx.data?.errors?.length) {
-        return Promise.reject(ctx)
-      }
-      return ctx
-    })
-    return instance
+
+    return lyla
   }
 
   /** Syntactic Sugar */
-  // AxiosInstance
-  get ajax() {
-    return this.#axiosInstance.value
+  // request handler
+  get request() {
+    return this.#requestHandler.value
   }
   // userOptions
   get defaultOptions() {
     return this.#defaultOptions.value
   }
-  set defaultOptions(options: AxiosRequestConfig) {
+  set defaultOptions(options: LylaRequestOptions) {
     this.#defaultOptions.value = options
   }
   // defaultParams
@@ -160,20 +258,17 @@ export class MediaWikiApi {
   }
 
   /** Base methods encapsulation */
-  get<T = any>(
-    params: MwApiParams,
-    options?: AxiosRequestConfig
-  ): Promise<AxiosResponse<T>> {
-    return this.ajax.get('', {
-      params,
+  get<T = any>(query: MwApiParams, options?: LylaRequestOptions) {
+    return this.request.get<T>(this.baseURL.value, {
+      query: query as any,
       ...options,
-    })
+    }) as Promise<LylaResponseWith<T>>
   }
-  post<T = any>(
-    data: MwApiParams,
-    config?: AxiosRequestConfig
-  ): Promise<AxiosResponse<T>> {
-    return this.ajax.post('', data, config)
+  post<T = any>(data: MwApiParams, options?: LylaRequestOptions) {
+    return this.request.post<T>(this.baseURL.value, {
+      json: data,
+      ...options,
+    }) as Promise<LylaResponseWith<T>>
   }
 
   async login(
@@ -208,19 +303,23 @@ export class MediaWikiApi {
     }
     return data.login
   }
-  async getUserInfo(): Promise<{
-    id: number
-    name: string
-    groups: string[]
-    rights: string[]
-    blockid?: number
-    blockedby?: string
-    blockedbyid?: number
-    blockedtimestamp?: string
-    blockreason?: string
-    blockexpiry?: string
-  }> {
-    const { data } = await this.get({
+  async getUserInfo() {
+    const { data } = await this.get<{
+      query: {
+        userinfo: {
+          id: number
+          name: string
+          groups: string[]
+          rights: string[]
+          blockid?: number
+          blockedby?: string
+          blockedbyid?: number
+          blockedtimestamp?: string
+          blockreason?: string
+          blockexpiry?: string
+        }
+      }
+    }>({
       action: 'query',
       meta: 'userinfo',
       uiprop: ['groups', 'rights', 'blockinfo'],
@@ -247,40 +346,40 @@ export class MediaWikiApi {
     return this.#tokens[`${type}token`]
   }
 
-  async postWithToken(
+  async postWithToken<T = any>(
     tokenType: MwTokenName,
     body: MwApiParams,
     options?: { tokenName?: string; retry?: number; noCache?: boolean }
-  ): Promise<AxiosResponse<any>> {
+  ): Promise<LylaResponseWith<T>> {
     const { tokenName = 'token', retry = 3, noCache = false } = options || {}
     if (retry < 1) {
       return Promise.reject({
         error: {
-          code: 'internal-retry-limit-exceeded',
+          code: 'WIKI_SAIKOU_TOKEN_RETRY_LIMIT_EXCEEDED',
           info: 'The limit of the number of times to automatically re-acquire the token has been exceeded',
         },
       })
     }
-    return this.post({
-      [tokenName]: await this.token(tokenType, noCache),
+    const token = await this.token(tokenType, noCache)
+    return this.post<T>({
+      [tokenName]: token,
       ...body,
+    }).catch(({ data }) => {
+      if (
+        [data?.errors?.[0].code, data?.error?.code].includes('badtoken') ||
+        ['NeedToken', 'WrongToken'].includes(data?.login?.result)
+      ) {
+        return this.postWithToken(tokenType, data, {
+          tokenName,
+          retry: retry - 1,
+          noCache: true,
+        })
+      }
+      return Promise.reject(data)
     })
-      .finally(() => {
-        delete this.#tokens[`${tokenType}token`]
-      })
-      .catch(({ data }) => {
-        if ([data?.errors?.[0].code, data?.error?.code].includes('badtoken')) {
-          return this.postWithToken(tokenType, body, {
-            tokenName,
-            retry: retry - 1,
-            noCache: true,
-          })
-        }
-        return Promise.reject(data)
-      })
   }
-  postWithEditToken(body: MwApiParams) {
-    return this.postWithToken('csrf', body)
+  postWithEditToken<T = any>(body: MwApiParams) {
+    return this.postWithToken<T>('csrf', body)
   }
 
   async getMessages(ammessages: string[], amlang = 'zh', options: MwApiParams) {
@@ -304,18 +403,27 @@ export class MediaWikiApi {
     return result
   }
 
-  async parseWikitext(wikitext: string, title?: string): Promise<string> {
-    const { data } = await this.post({
-      action: 'parse',
-      title,
-      text: wikitext,
-    })
+  async parseWikitext(
+    wikitext: string,
+    title?: string,
+    extraBody?: MwApiParams,
+    options?: LylaRequestOptions
+  ): Promise<string> {
+    const { data } = await this.post(
+      {
+        action: 'parse',
+        title,
+        text: wikitext,
+        ...extraBody,
+      },
+      options
+    )
     return data.parse.text
   }
 }
 
 export class MediaWikiForeignApi extends MediaWikiApi {
-  constructor(baseURL?: string, options?: AxiosRequestConfig) {
+  constructor(baseURL?: string, options?: LylaRequestOptions) {
     super(baseURL, {
       withCredentials: true,
       ...options,
@@ -331,7 +439,7 @@ export { MediaWikiApi as MwApi, MediaWikiForeignApi as ForeignApi }
 // Types
 export type MwApiParams = Record<
   string,
-  string | number | string[] | undefined | boolean
+  string | number | string[] | undefined | boolean | File
 >
 export type MwTokenName =
   | 'createaccount'
