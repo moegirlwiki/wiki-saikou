@@ -1,4 +1,4 @@
-import { MediaWikiApi } from '../dist/index.js'
+import { MediaWikiApi } from '../dist/index.mjs'
 import { env } from 'node:process'
 
 const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php', {

@@ -143,6 +143,7 @@ export class MediaWikiApi {
       return ctx
     })
 
+    // @ts-ignore FIXME: Type error during vite build, too bad!
     const { lyla } = createLyla({
       baseUrl: baseURL,
       context: { requestInit },
@@ -165,7 +166,7 @@ export class MediaWikiApi {
     options.hooks.onAfterResponse ??= []
 
     options.hooks.onInit?.unshift((ctx) => {
-      // @ts-ignore
+      // @ts-ignore FIXME: Type error during vite build, too bad!
       ctx.query = {
         ...this.defaultParams,
         ...ctx.query,
@@ -212,20 +213,18 @@ export class MediaWikiApi {
   }
 
   /** Base methods encapsulation */
-  get<T = any>(
-    query: MwApiParams,
-    options?: LylaRequestOptions
-  ): Promise<LylaResponse<T>> {
-    return this.ajax.get(this.baseURL.value, {
+  // @ts-ignore FIXME: Type error during vite build, too bad!
+  get<T = any>(query: MwApiParams, options?: LylaRequestOptions) {
+    // @ts-ignore FIXME: Type error during vite build, too bad!
+    return this.ajax.get<T>(this.baseURL.value, {
       query: query as any,
       ...options,
     })
   }
-  post<T = any>(
-    data: MwApiParams,
-    options?: LylaRequestOptions
-  ): Promise<LylaResponse<T>> {
-    return this.ajax.post(this.baseURL.value, {
+  // @ts-ignore FIXME: Type error during vite build, too bad!
+  post<T = any>(data: MwApiParams, options?: LylaRequestOptions) {
+    // @ts-ignore FIXME: Type error during vite build, too bad!
+    return this.ajax.post<T>(this.baseURL.value, {
       json: data,
       ...options,
     })
@@ -302,11 +301,11 @@ export class MediaWikiApi {
     return this.#tokens[`${type}token`]
   }
 
-  async postWithToken(
+  async postWithToken<T = any>(
     tokenType: MwTokenName,
     body: MwApiParams,
     options?: { tokenName?: string; retry?: number; noCache?: boolean }
-  ): Promise<LylaResponse<any>> {
+  ): Promise<LylaResponse<T>> {
     const { tokenName = 'token', retry = 3, noCache = false } = options || {}
     if (retry < 1) {
       return Promise.reject({
@@ -316,14 +315,15 @@ export class MediaWikiApi {
         },
       })
     }
-    return this.post({
+    // @ts-ignore FIXME: Type error during vite build, too bad!
+    return this.post<T>({
       [tokenName]: await this.token(tokenType, noCache),
       ...body,
     })
       .finally(() => {
         delete this.#tokens[`${tokenType}token`]
       })
-      .catch(({ data }) => {
+      .catch(({ body: data }) => {
         if ([data?.errors?.[0].code, data?.error?.code].includes('badtoken')) {
           return this.postWithToken(tokenType, body, {
             tokenName,
