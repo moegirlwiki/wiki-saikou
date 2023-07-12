@@ -332,10 +332,10 @@ export class MediaWikiApi {
     return this.post<T>({
       [tokenName]: token,
       ...body,
-    }).catch(({ body: data }) => {
+    }).catch(({ body }) => {
       if (
-        [data?.errors?.[0].code, data?.error?.code].includes('badtoken') ||
-        ['NeedToken', 'WrongToken'].includes(data?.login?.result)
+        [body?.errors?.[0].code, body?.error?.code].includes('badtoken') ||
+        ['NeedToken', 'WrongToken'].includes(body?.login?.result)
       ) {
         return this.postWithToken(tokenType, body, {
           tokenName,
@@ -343,7 +343,7 @@ export class MediaWikiApi {
           noCache: true,
         })
       }
-      return Promise.reject(data)
+      return Promise.reject(body)
     })
   }
   postWithEditToken<T = any>(body: MwApiParams) {
