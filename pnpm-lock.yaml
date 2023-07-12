@@ -1,10 +1,13 @@
-lockfileVersion: '6.1'
+lockfileVersion: '6.0'
 
 settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
 dependencies:
+  '@lylajs/core':
+    specifier: ^1.2.0
+    version: 1.2.0
   '@vue/reactivity':
     specifier: ^3.3.4
     version: 3.3.4
@@ -519,6 +522,10 @@ packages:
       wrap-ansi: 8.1.0
       wrap-ansi-cjs: /wrap-ansi@7.0.0
     dev: true
+
+  /@lylajs/core@1.2.0:
+    resolution: {integrity: sha512-JFkOzbi3i6g2Ho4Ec9AknOuL8lyr8jinQh3XPuv8QSJ0PIJG1wGMDgKPUEOeXJbKY5tKu7Y97+dP7oidpAehvw==}
+    dev: false
 
   /@microsoft/api-extractor-model@7.27.4(@types/node@18.16.19):
     resolution: {integrity: sha512-HjqQFmuGPOS20rtnu+9Jj0QrqZyR59E+piUWXPMZTTn4jaZI+4UmsHSf3Id8vyueAhOBH2cgwBuRTE5R+MfSMw==}

@@ -25,7 +25,7 @@ describe('Actions', () => {
 
   it('Do edit', async () => {
     const {
-      data: { edit },
+      body: { edit },
     } = await api.postWithEditToken({
       action: 'edit',
       title: editTitle,
@@ -39,7 +39,7 @@ describe('Actions', () => {
 
   it('Check edit contents', async () => {
     const {
-      data: {
+      body: {
         query: {
           pages: [page],
         },
