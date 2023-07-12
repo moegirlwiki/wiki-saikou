@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import { describe, it } from 'mocha'
 import { expect } from 'chai'
 import { env } from 'process'
@@ -10,6 +11,17 @@ const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php', {
 })
 
 describe('MediaWikiApi', () => {
+  it('[CORE] normalize param values', () => {
+    expect(MediaWikiApi.normalizeParamValue(true)).to.eq('1')
+    expect(MediaWikiApi.normalizeParamValue(false)).to.be.undefined
+    expect(MediaWikiApi.normalizeParamValue(123)).to.eq('123')
+    expect(MediaWikiApi.normalizeParamValue(['foo', 'bar'])).to.eq('foo|bar')
+    if (globalThis.File) {
+      const fakeFile = new File(['foo'], 'foo.txt', { type: 'text/plain' })
+      expect(MediaWikiApi.normalizeParamValue(fakeFile)).to.instanceOf(File)
+    }
+  })
+
   it('[GET] siteinfo', async () => {
     const { body } = await api.get({ action: 'query', meta: 'siteinfo' })
     expect(body.query.general).to.be.an('object')

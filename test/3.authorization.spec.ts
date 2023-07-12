@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import { describe, it } from 'mocha'
 import { expect } from 'chai'
 import { env } from 'process'
@@ -20,7 +21,7 @@ describe('Authorization', () => {
 
   it('Login success', async () => {
     const login = await api.login(username, password).catch((e) => {
-      console.error('LOGIN FAIL', e.data)
+      console.error('LOGIN FAIL', e)
       return Promise.reject(e)
     })
     expect(login.result).to.equal('Success')

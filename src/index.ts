@@ -51,7 +51,7 @@ export class MediaWikiApi {
 
     this.#requestHandler = computed(() => {
       const options: LylaRequestOptions = {
-        ...this.defaultOptions,
+        ...this.#defaultOptions.value,
       }
 
       options.hooks ??= {}
@@ -63,7 +63,7 @@ export class MediaWikiApi {
       options.hooks.onInit?.unshift((ctx) => {
         // @ts-ignore FIXME: Type error during vite build, too bad!
         ctx.query = {
-          ...this.defaultParams,
+          ...this.#defaultParams.value,
           ...ctx.query,
         }
 
@@ -77,10 +77,9 @@ export class MediaWikiApi {
       if (!('document' in globalThis)) {
         options.hooks.onBeforeRequest.push((ctx) => {
           ctx.headers = ctx.headers || {}
-          ctx.headers['cookie'] = ''
-          for (const name in this.cookies) {
-            ctx.headers['cookie'] += `${name}=${this.cookies[name]};`
-          }
+          ctx.headers['cookie'] = Object.keys(this.cookies)
+            .map((name) => `${name}=${this.cookies[name]}`)
+            .join(';')
           return ctx
         })
         options.hooks.onAfterResponse.push((ctx) => {
@@ -100,11 +99,11 @@ export class MediaWikiApi {
     })
   }
 
-  static adjustParamValue(item: MwApiParams[keyof MwApiParams]) {
+  static normalizeParamValue(item: MwApiParams[keyof MwApiParams]) {
     if (Array.isArray(item)) {
       return item.join('|')
     } else if (typeof item === 'boolean') {
-      return item ? '' : undefined
+      return item ? '1' : undefined
     } else if (typeof item === 'number') {
       return '' + item
     } else {
@@ -116,10 +115,11 @@ export class MediaWikiApi {
     options.hooks.onInit ??= []
     options.hooks.onBeforeRequest ??= []
     options.hooks.onAfterResponse ??= []
+    options.hooks.onResponseError ??= []
 
     options.hooks.onInit.push((ctx) => {
       // console.info(
-      //   '[onBeforeRequest] afterTransform',
+      //   '[onInit] beforeTransform',
       //   ctx.method,
       //   ctx.url,
       //   ctx.query,
@@ -134,7 +134,7 @@ export class MediaWikiApi {
       if (ctx.json) {
         const form = new URLSearchParams('')
         for (const key in ctx.json) {
-          const data = MediaWikiApi.adjustParamValue(ctx.json[key])
+          const data = MediaWikiApi.normalizeParamValue(ctx.json[key])
           if (typeof data === 'undefined') continue
           form.append(key, '' + data)
         }
@@ -149,7 +149,7 @@ export class MediaWikiApi {
         const body = ctx.body
         // Adjust params
         body.forEach((value, key) => {
-          const data = MediaWikiApi.adjustParamValue(value)
+          const data = MediaWikiApi.normalizeParamValue(value)
           if (typeof data === 'undefined' || data === null) {
             body.delete(key)
           } else if (data !== value) {
@@ -163,13 +163,6 @@ export class MediaWikiApi {
         body.has('origin') && (ctx.query.origin = '' + body.get('origin'))
       }
 
-      // console.info(
-      //   '[onBeforeRequest] afterTransform',
-      //   ctx.method,
-      //   ctx.url,
-      //   ctx.query,
-      //   ctx.body
-      // )
       return ctx
     })
 
@@ -177,19 +170,32 @@ export class MediaWikiApi {
     options.hooks.onInit.push((ctx) => {
       ctx.query ??= {}
       for (const key in ctx.query) {
-        const data = MediaWikiApi.adjustParamValue(ctx.query[key])
+        const data = MediaWikiApi.normalizeParamValue(ctx.query[key])
         if (typeof data === 'undefined' || data === null) {
           delete ctx.query[key]
         } else if (data !== ctx.query[key]) {
           ctx.query[key] = '' + data
         }
       }
-      // Adjust origin
-      if (ctx.query?.origin) {
-        ctx.query.origin = encodeURIComponent(ctx.query?.origin).replace(
-          /\./g,
-          '%2E'
-        )
+
+      // console.info('[onInit]', ctx.method?.toUpperCase(), ctx.url, {
+      //   query: ctx.query,
+      //   body: ctx.body,
+      //   headers: ctx.headers,
+      // })
+      return ctx
+    })
+
+    // Adjust origin param
+    options.hooks.onBeforeRequest.push((ctx) => {
+      const url = new URL(ctx.url!)
+      if (url.searchParams.has('origin')) {
+        const origin = encodeURIComponent(
+          url.searchParams.get('origin') || ''
+        ).replace(/\./g, '%2E')
+        delete ctx.query
+        url.searchParams.delete('origin')
+        ctx.url = `${url}${url.search ? '&' : '?'}origin=${origin}`
       }
       return ctx
     })
@@ -317,28 +323,28 @@ export class MediaWikiApi {
     if (retry < 1) {
       return Promise.reject({
         error: {
-          code: 'internal-retry-limit-exceeded',
+          code: 'WIKI_SAIKOU_TOKEN_RETRY_LIMIT_EXCEEDED',
           info: 'The limit of the number of times to automatically re-acquire the token has been exceeded',
         },
       })
     }
+    const token = await this.token(tokenType, noCache)
     return this.post<T>({
-      [tokenName]: await this.token(tokenType, noCache),
+      [tokenName]: token,
       ...body,
+    }).catch(({ body: data }) => {
+      if (
+        [data?.errors?.[0].code, data?.error?.code].includes('badtoken') ||
+        ['NeedToken', 'WrongToken'].includes(data?.login?.result)
+      ) {
+        return this.postWithToken(tokenType, body, {
+          tokenName,
+          retry: retry - 1,
+          noCache: true,
+        })
+      }
+      return Promise.reject(data)
     })
-      .finally(() => {
-        delete this.#tokens[`${tokenType}token`]
-      })
-      .catch(({ body: data }) => {
-        if ([data?.errors?.[0].code, data?.error?.code].includes('badtoken')) {
-          return this.postWithToken(tokenType, body, {
-            tokenName,
-            retry: retry - 1,
-            noCache: true,
-          })
-        }
-        return Promise.reject(data)
-      })
   }
   postWithEditToken<T = any>(body: MwApiParams) {
     return this.postWithToken<T>('csrf', body)

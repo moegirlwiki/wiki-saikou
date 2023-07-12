@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import { describe, it } from 'mocha'
 import { expect } from 'chai'
 import { env } from 'process'
