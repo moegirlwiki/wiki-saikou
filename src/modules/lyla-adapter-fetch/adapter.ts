@@ -3,7 +3,7 @@ import type {
   LylaAdapterMeta as LylaCoreAdapterMeta,
 } from '@lylajs/core'
 
-export interface LylaAdapterMeta<T = any> extends LylaCoreAdapterMeta {
+export interface LylaAdapterMeta extends LylaCoreAdapterMeta {
   method:
     | 'get'
     | 'GET'
@@ -27,7 +27,6 @@ export interface LylaAdapterMeta<T = any> extends LylaCoreAdapterMeta {
   requestBody: string | FormData
   responseDetail: Response
   responseType: 'arraybuffer' | 'blob' | 'text'
-  responseBody: T
   body: BodyInit
 }
 
@@ -77,10 +76,7 @@ export const adapter: LylaAdapter<LylaAdapterMeta> = ({
       } catch (error) {}
     }
     if (!body) {
-      body = await response
-        .clone()
-        .json()
-        .catch(() => response.clone().text())
+      body = await response.clone().text()
     }
 
     onResponse(

@@ -66,25 +66,25 @@ Below is the documentation of MediaWikiApi.
 
 **Main methods**:
 
-#### `new MediaWikiApi(baseURL?: string, options?: AxiosRequestConfig)`
+#### `new MediaWikiApi(baseURL?: string, options?: LylaRequestOptions)`
 
 - `baseURL`: API endpoint of your target wiki site (e.g. https://mediawiki.org/w/api.php)
   - **Not required but with conditions**: If you are using it in the browser environment, and the website runs MediaWiki. The instance will automatically use the API endpoint of current wiki.
-- `options`: {AxiosRequestConfig}
+- `options`: {LylaRequestOptions}
 
 #### `login(username: string, password: string): Promise<{ result: 'Success' | 'Failed'; lguserid: number; lgusername: string }>`
 
 Login your account.
 
-#### `get<T = any>(params: MwApiParams, options?: AxiosRequestConfig): Promise<AxiosResponse<T>>`
+#### `get<T = any>(params: MwApiParams, options?: LylaRequestOptions): Promise<LylaResponseWith<T>>`
 
 Make `GET` request
 
-#### `post<T = any>(body: MwApiParams, options?: AxiosRequestConfig): Promise<AxiosResponse<T>>`
+#### `post<T = any>(body: MwApiParams, options?: LylaRequestOptions): Promise<LylaResponseWith<T>>`
 
 Make `POST` request
 
-#### `postWithToken<T = any>(tokenType: MwTokenName, body: MwApiParams, options?: AxiosRequestConfig): Promise<AxiosResponse<T>>`
+#### `postWithToken<T = any>(tokenType: MwTokenName, body: MwApiParams, options?: LylaRequestOptions): Promise<LylaResponseWith<T>>`
 
 Make `POST` request with specified token.
 
@@ -101,20 +101,20 @@ type MwTokenName =
 
 ### Auxiliary utilities
 
-#### `get ajax` {AxiosInstance}
+#### `get request` {AxiosInstance}
 
-Get `AxiosInstance` of current MediaWikiApi instance
+Get `Lyla` instance of current MediaWikiApi instance
 
-#### `MediaWikiApi.adjustParamValue(params: MwApiParams): Record<string: string>` (static)
+#### `MediaWikiApi.normalizeParamValue(params: MwApiParams[keyof MwApiParams]): string | File | undefined` (static)
 
-Adjust input params to standard MediaWiki request params.
+Normalize input params to standard MediaWiki request params.
 
 - `string[] → string`: `['foo', 'bar', 'baz'] → 'foo|bar|baz`
 - `false → undefined`: remove false items
 
-#### `MediaWikiApi.createAxiosInstance(payload: { baseURL: string; params: MwApiParams; options: AxiosRequestConfig })` (static)
+#### `MediaWikiApi.createLylaInstance(baseURL: string, options?: LylaRequestOptions): Lyla` (static)
 
-Create your own axios instance.
+Create your own Lyla instance.
 
 **Warning: The instance created by this method does not include responsive getters/setters (described below) and the out of box cookie controls.**
 

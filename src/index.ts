@@ -13,9 +13,9 @@ import {
   LylaRequestOptions,
   LylaResponse,
 } from './modules/lyla-adapter-fetch'
-import { Lyla, LylaResponse as LylaCoreResponse } from '@lylajs/core'
+import { Lyla } from '@lylajs/core'
 
-type LylaResponseWith<T> = LylaCoreResponse<T, any, LylaAdapterMeta<T>> & {
+type LylaResponseWith<T> = LylaResponse<T> & {
   data: T
 }
 
@@ -71,8 +71,16 @@ export class MediaWikiApi {
           ...ctx.query,
         }
 
-        // Fix missing baseURL
+        // Fix baseURL
         !ctx.url && (ctx.url = this.baseURL.value)
+        try {
+          ctx.url = new URL(
+            ctx.url,
+            this.baseURL.value.startsWith('http')
+              ? this.baseURL.value
+              : globalThis.location?.href
+          ).toString()
+        } catch (_) {}
 
         return ctx
       })
@@ -205,15 +213,16 @@ export class MediaWikiApi {
     })
 
     /**
-     * @deprecated response.data shortcut compatibility
+     * response.data shortcut compatibility
      */
     options.hooks.onAfterResponse.push((ctx) => {
       Object.defineProperty(ctx, 'data', {
         get() {
-          console.trace(
-            '[WikiSaikou] response.data is deprecated, use response.body instead'
-          )
-          return ctx.body
+          try {
+            return JSON.parse(ctx.body as string)
+          } catch (_) {
+            return ctx.body
+          }
         },
       })
       return ctx
@@ -277,7 +286,7 @@ export class MediaWikiApi {
     lgusername: string
   }> {
     this.defaultOptions.withCredentials = true
-    const { body } = await this.postWithToken(
+    const { data } = await this.postWithToken(
       'login',
       {
         action: 'login',
@@ -287,42 +296,46 @@ export class MediaWikiApi {
       },
       { tokenName: 'lgtoken' }
     )
-    if (body?.login?.result !== 'Success') {
+    if (data?.login?.result !== 'Success') {
       throw new Error(
-        body?.login?.reason?.text || body?.login?.result || 'Login failed'
+        data?.login?.reason?.text || data?.login?.result || 'Login failed'
       )
     }
-    return body.login
+    return data.login
   }
-  async getUserInfo(): Promise<{
-    id: number
-    name: string
-    groups: string[]
-    rights: string[]
-    blockid?: number
-    blockedby?: string
-    blockedbyid?: number
-    blockedtimestamp?: string
-    blockreason?: string
-    blockexpiry?: string
-  }> {
-    const { body } = await this.get({
+  async getUserInfo() {
+    const { data } = await this.get<{
+      query: {
+        userinfo: {
+          id: number
+          name: string
+          groups: string[]
+          rights: string[]
+          blockid?: number
+          blockedby?: string
+          blockedbyid?: number
+          blockedtimestamp?: string
+          blockreason?: string
+          blockexpiry?: string
+        }
+      }
+    }>({
       action: 'query',
       meta: 'userinfo',
       uiprop: ['groups', 'rights', 'blockinfo'],
     })
-    return body?.query?.userinfo
+    return data?.query?.userinfo
   }
 
   /** Token Handler */
   async getTokens(type: MwTokenName[] = ['csrf']) {
     this.defaultOptions.withCredentials = true
-    const { body } = await this.get({
+    const { data } = await this.get({
       action: 'query',
       meta: 'tokens',
       type,
     })
-    this.#tokens = { ...this.#tokens, ...body.query.tokens }
+    this.#tokens = { ...this.#tokens, ...data.query.tokens }
     return this.#tokens
   }
   async token(type: MwTokenName = 'csrf', noCache = false) {
@@ -337,7 +350,7 @@ export class MediaWikiApi {
     tokenType: MwTokenName,
     body: MwApiParams,
     options?: { tokenName?: string; retry?: number; noCache?: boolean }
-  ): Promise<LylaResponse<T>> {
+  ): Promise<LylaResponseWith<T>> {
     const { tokenName = 'token', retry = 3, noCache = false } = options || {}
     if (retry < 1) {
       return Promise.reject({
@@ -351,18 +364,18 @@ export class MediaWikiApi {
     return this.post<T>({
       [tokenName]: token,
       ...body,
-    }).catch(({ body }) => {
+    }).catch(({ data }) => {
       if (
-        [body?.errors?.[0].code, body?.error?.code].includes('badtoken') ||
-        ['NeedToken', 'WrongToken'].includes(body?.login?.result)
+        [data?.errors?.[0].code, data?.error?.code].includes('badtoken') ||
+        ['NeedToken', 'WrongToken'].includes(data?.login?.result)
       ) {
-        return this.postWithToken(tokenType, body, {
+        return this.postWithToken(tokenType, data, {
           tokenName,
           retry: retry - 1,
           noCache: true,
         })
       }
-      return Promise.reject(body)
+      return Promise.reject(data)
     })
   }
   postWithEditToken<T = any>(body: MwApiParams) {
@@ -370,7 +383,7 @@ export class MediaWikiApi {
   }
 
   async getMessages(ammessages: string[], amlang = 'zh', options: MwApiParams) {
-    const { body } = await this.get({
+    const { data } = await this.get({
       action: 'query',
       meta: 'allmessages',
       ammessages,
@@ -378,7 +391,7 @@ export class MediaWikiApi {
       ...options,
     })
     const result: Record<string, string> = {}
-    body.query.allmessages.forEach(function (obj: {
+    data.query.allmessages.forEach(function (obj: {
       missing?: boolean
       name: string
       content: string
@@ -396,7 +409,7 @@ export class MediaWikiApi {
     extraBody?: MwApiParams,
     options?: LylaRequestOptions
   ): Promise<string> {
-    const { body } = await this.post(
+    const { data } = await this.post(
       {
         action: 'parse',
         title,
@@ -405,7 +418,7 @@ export class MediaWikiApi {
       },
       options
     )
-    return body.parse.text
+    return data.parse.text
   }
 }
 

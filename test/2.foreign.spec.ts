@@ -14,7 +14,7 @@ const api = new MediaWikiForeignApi('https://commons.moegirl.org.cn/api.php', {
 
 describe('MediaWikiForeignApi', () => {
   it('[GET] siteinfo', async () => {
-    const { body, headers } = await api
+    const { data, headers } = await api
       .get({
         action: 'query',
         meta: 'siteinfo',
@@ -24,21 +24,21 @@ describe('MediaWikiForeignApi', () => {
         return Promise.reject(e)
       })
     expect(headers['access-control-allow-origin']).to.equal(location.origin)
-    expect(body.query.general.sitename).to.equal('萌娘共享')
+    expect(data.query.general.sitename).to.equal('萌娘共享')
   })
 
   it('[GET] array as param', async () => {
-    const { body, headers } = await api.get({
+    const { data, headers } = await api.get({
       action: 'query',
       meta: ['siteinfo', 'userinfo'],
     })
     expect(headers['access-control-allow-origin']).to.equal(location.origin)
-    expect(body.query.general).to.not.be.undefined
-    expect(body.query.userinfo).to.not.be.undefined
+    expect(data.query.general).to.not.be.undefined
+    expect(data.query.userinfo).to.not.be.undefined
   })
 
   it('[POST] parse', async () => {
-    const { body, headers } = await api
+    const { data, headers } = await api
       .post({
         action: 'parse',
         title: 'Custom Page',
@@ -50,11 +50,11 @@ describe('MediaWikiForeignApi', () => {
         console.warn(e)
         return Promise.reject(e)
       })
-    // console.info({ body, headers })
+    // console.info({ data, headers })
     expect(headers['access-control-allow-origin']).to.equal(location.origin)
-    expect(body.parse.title).to.eq('Custom Page')
-    expect(body.parse.text).to.includes('<b>bold</b>')
-    expect(body.parse.text).to.includes('<i>italic</i>')
-    expect(body.parse.links).to.be.an('array')
+    expect(data.parse.title).to.eq('Custom Page')
+    expect(data.parse.text).to.includes('<b>bold</b>')
+    expect(data.parse.text).to.includes('<i>italic</i>')
+    expect(data.parse.links).to.be.an('array')
   })
 })
