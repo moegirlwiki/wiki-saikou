@@ -2,6 +2,10 @@ import { resolve } from 'path'
 import { defineConfig } from 'vite'
 import dts from 'vite-plugin-dts'
 
+const PROD =
+  process.env.NODE_ENV === 'production' &&
+  process.env.BUILD_ENV !== 'development'
+
 export default defineConfig({
   build: {
     lib: {
@@ -12,7 +16,9 @@ export default defineConfig({
     },
     sourcemap: true,
   },
-  esbuild: {},
+  esbuild: {
+    drop: PROD ? ['console'] : [],
+  },
   define: {
     // @FIX Uncaught ReferenceError: process is not defined
     // @link https://github.com/vitejs/vite/issues/9186
