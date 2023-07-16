@@ -11,7 +11,7 @@ import {
   Fexios,
   FexiosConfigs,
   FexiosRequestOptions,
-  FexiosResponse,
+  FexiosFinalContext,
 } from 'fexios'
 
 export class MediaWikiApi {
@@ -293,7 +293,7 @@ export class MediaWikiApi {
     tokenType: MwTokenName,
     body: MwApiParams,
     options?: { tokenName?: string; retry?: number; noCache?: boolean }
-  ): Promise<FexiosResponse<T>> {
+  ): Promise<FexiosFinalContext<T>> {
     const { tokenName = 'token', retry = 3, noCache = false } = options || {}
     if (retry < 1) {
       return Promise.reject({
