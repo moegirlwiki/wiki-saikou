@@ -210,7 +210,10 @@ export class MediaWikiApi {
       ...options,
     })
   }
-  post<T = any>(data: MwApiParams, options?: FexiosRequestOptions) {
+  post<T = any>(
+    data: MwApiParams | URLSearchParams | FormData,
+    options?: FexiosRequestOptions
+  ) {
     return this.request.post<T>('', data, options)
   }
 
@@ -257,9 +260,9 @@ export class MediaWikiApi {
           blockid?: number
           blockedby?: string
           blockedbyid?: number
-          blockedtimestamp?: string
           blockreason?: string
           blockexpiry?: string
+          blockedtimestamp?: string
         }
       }
     }>({
