@@ -1,16 +1,16 @@
-lockfileVersion: '6.0'
+lockfileVersion: '6.1'
 
 settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
 dependencies:
-  '@lylajs/core':
-    specifier: ^1.2.0
-    version: 1.2.0
   '@vue/reactivity':
     specifier: ^3.3.4
     version: 3.3.4
+  fexios:
+    specifier: ^1.1.0
+    version: 1.1.0
 
 devDependencies:
   '@types/chai':
@@ -522,10 +522,6 @@ packages:
       wrap-ansi: 8.1.0
       wrap-ansi-cjs: /wrap-ansi@7.0.0
     dev: true
-
-  /@lylajs/core@1.2.0:
-    resolution: {integrity: sha512-JFkOzbi3i6g2Ho4Ec9AknOuL8lyr8jinQh3XPuv8QSJ0PIJG1wGMDgKPUEOeXJbKY5tKu7Y97+dP7oidpAehvw==}
-    dev: false
 
   /@microsoft/api-extractor-model@7.27.4(@types/node@18.16.19):
     resolution: {integrity: sha512-HjqQFmuGPOS20rtnu+9Jj0QrqZyR59E+piUWXPMZTTn4jaZI+4UmsHSf3Id8vyueAhOBH2cgwBuRTE5R+MfSMw==}
@@ -1161,6 +1157,10 @@ packages:
     dependencies:
       reusify: 1.0.4
     dev: true
+
+  /fexios@1.1.0:
+    resolution: {integrity: sha512-Bf5Jmyfzx7C7r2DkBADotOWbvSxNjjFtmF0rgdT8P5T+751s9WltbP2o6vKR5ffoTiQfXZaDctikjlyQVT/ebw==}
+    dev: false
 
   /fill-range@7.0.1:
     resolution: {integrity: sha512-qOo9F+dMUmC2Lcb4BbVvnKJxTPjCm+RRpe4gDuGrzkL7mEVl/djYSu2OdQ2Pa302N4oqkSg9ir6jaLWJ2USVpQ==}

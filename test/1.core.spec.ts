@@ -69,13 +69,13 @@ describe('MediaWikiApi', () => {
   //     timeout: 114514,
   //   }
 
-  //   expect(api.ajax.defaults.baseURL).to.equal(
+  //   expect(api.request.baseConfigs.baseURL).to.equal(
   //     'https://commons.moegirl.org.cn/api.php'
   //   )
-  //   expect(api.ajax.defaults.params).to.deep.equal({
+  //   expect(api.request.baseConfigs.query).to.deep.equal({
   //     key1: 'value1',
   //     key2: 'value2',
   //   })
-  //   expect(api.ajax.defaults.timeout).to.equal(114514)
+  //   expect(api.request.baseConfigs.timeout).to.equal(114514)
   // })
 })
