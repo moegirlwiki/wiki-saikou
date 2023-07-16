@@ -307,19 +307,23 @@ export class MediaWikiApi {
     return this.post<T>({
       [tokenName]: token,
       ...body,
-    }).catch(({ data }) => {
-      if (
-        [data?.errors?.[0].code, data?.error?.code].includes('badtoken') ||
-        ['NeedToken', 'WrongToken'].includes(data?.login?.result)
-      ) {
-        return this.postWithToken(tokenType, data, {
-          tokenName,
-          retry: retry - 1,
-          noCache: true,
-        })
-      }
-      return Promise.reject(data)
     })
+      .catch(({ data }) => {
+        if (
+          [data?.errors?.[0].code, data?.error?.code].includes('badtoken') ||
+          ['NeedToken', 'WrongToken'].includes(data?.login?.result)
+        ) {
+          return this.postWithToken(tokenType, data, {
+            tokenName,
+            retry: retry - 1,
+            noCache: true,
+          })
+        }
+        return Promise.reject(data)
+      })
+      .finally(() => {
+        delete this.#tokens[`${tokenType}token`]
+      })
   }
   postWithEditToken<T = any>(body: MwApiParams) {
     return this.postWithToken<T>('csrf', body)
