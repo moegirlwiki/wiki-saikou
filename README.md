@@ -65,7 +65,7 @@ Below is the documentation of MediaWikiApi.
 
 **Main methods**:
 
-#### `new MediaWikiApi(baseURL?: string, options?: LylaRequestOptions)`
+#### `new MediaWikiApi(baseURL?: string, options?: Partial<FexiosConfigs>)`
 
 - `baseURL`: API endpoint of your target wiki site (e.g. https://mediawiki.org/w/api.php)
   - **Not required but with conditions**: If you are using it in the browser environment, and the website runs MediaWiki. The instance will automatically use the API endpoint of current wiki.
@@ -75,15 +75,15 @@ Below is the documentation of MediaWikiApi.
 
 Login your account.
 
-#### `get<T = any>(params: MwApiParams, options?: LylaRequestOptions): Promise<LylaResponseWith<T>>`
+#### `get<T = any>(params: MwApiParams, options?: FexiosRequestOptions): Promise<FexiosFinalContext<T>>`
 
 Make `GET` request
 
-#### `post<T = any>(body: MwApiParams, options?: LylaRequestOptions): Promise<LylaResponseWith<T>>`
+#### `post<T = any>(body: MwApiParams, options?: LylaRequestOptions): Promise<FexiosFinalContext<T>>`
 
 Make `POST` request
 
-#### `postWithToken<T = any>(tokenType: MwTokenName, body: MwApiParams, options?: LylaRequestOptions): Promise<LylaResponseWith<T>>`
+#### `postWithToken<T = any>(tokenType: MwTokenName, body: MwApiParams, options?: LylaRequestOptions): Promise<FexiosFinalContext<T>>`
 
 Make `POST` request with specified token.
 
@@ -111,9 +111,9 @@ Normalize input params to standard MediaWiki request params.
 - `string[] → string`: `['foo', 'bar', 'baz'] → 'foo|bar|baz`
 - `false → undefined`: remove false items
 
-#### `MediaWikiApi.createLylaInstance(baseURL: string, options?: LylaRequestOptions): Lyla` (static)
+#### `MediaWikiApi.createRequestHandler(baseURL: string, options?: Partial<FexiosRequestOptions>): Fexios` (static)
 
-Create your own Lyla instance.
+Create your own Fexios instance.
 
 **Warning: The instance created by this method does not include responsive getters/setters (described below) and the out of box cookie controls.**
 
