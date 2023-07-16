@@ -9,8 +9,8 @@ dependencies:
     specifier: ^3.3.4
     version: 3.3.4
   fexios:
-    specifier: ^1.1.0
-    version: 1.1.0
+    specifier: ^1.1.1
+    version: 1.1.1
 
 devDependencies:
   '@types/chai':
@@ -1158,8 +1158,8 @@ packages:
       reusify: 1.0.4
     dev: true
 
-  /fexios@1.1.0:
-    resolution: {integrity: sha512-Bf5Jmyfzx7C7r2DkBADotOWbvSxNjjFtmF0rgdT8P5T+751s9WltbP2o6vKR5ffoTiQfXZaDctikjlyQVT/ebw==}
+  /fexios@1.1.1:
+    resolution: {integrity: sha512-PccqJ+hUKo4y48cgLcKTd4jqerkqipCnyDJgDMHH+O4l4EBlxUJ18Ze8Miyy9CpAT0H3ISVOwinMd9vz/saS2Q==}
     dev: false
 
   /fill-range@7.0.1:

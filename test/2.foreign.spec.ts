@@ -14,7 +14,7 @@ const api = new MediaWikiForeignApi('https://commons.moegirl.org.cn/api.php', {
 
 describe('MediaWikiForeignApi', () => {
   it('[GET] siteinfo', async () => {
-    const { data, headers } = await api
+    const { data, response } = await api
       .get({
         action: 'query',
         meta: 'siteinfo',
@@ -23,22 +23,26 @@ describe('MediaWikiForeignApi', () => {
         console.warn(e)
         return Promise.reject(e)
       })
-    expect(headers['access-control-allow-origin']).to.equal(location.origin)
+    expect(response.headers.get('access-control-allow-origin')).to.equal(
+      location.origin
+    )
     expect(data.query.general.sitename).to.equal('萌娘共享')
   })
 
   it('[GET] array as param', async () => {
-    const { data, headers } = await api.get({
+    const { data, response } = await api.get({
       action: 'query',
       meta: ['siteinfo', 'userinfo'],
     })
-    expect(headers['access-control-allow-origin']).to.equal(location.origin)
+    expect(response.headers.get('access-control-allow-origin')).to.equal(
+      location.origin
+    )
     expect(data.query.general).to.not.be.undefined
     expect(data.query.userinfo).to.not.be.undefined
   })
 
   it('[POST] parse', async () => {
-    const { data, headers } = await api
+    const { data, response } = await api
       .post({
         action: 'parse',
         title: 'Custom Page',
@@ -51,7 +55,9 @@ describe('MediaWikiForeignApi', () => {
         return Promise.reject(e)
       })
     // console.info({ data, headers })
-    expect(headers['access-control-allow-origin']).to.equal(location.origin)
+    expect(response.headers.get('access-control-allow-origin')).to.equal(
+      location.origin
+    )
     expect(data.parse.title).to.eq('Custom Page')
     expect(data.parse.text).to.includes('<b>bold</b>')
     expect(data.parse.text).to.includes('<i>italic</i>')

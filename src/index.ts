@@ -104,6 +104,24 @@ export class MediaWikiApi {
       }
 
       if (
+        typeof ctx.body === 'object' &&
+        ctx.body !== null &&
+        !(ctx.body instanceof URLSearchParams) &&
+        !(ctx.body instanceof FormData)
+      ) {
+        const body: any = ctx.body
+        Object.keys(body).forEach((key) => {
+          const data = MediaWikiApi.normalizeParamValue(body[key])
+          if (typeof data === 'undefined' || data === null) {
+            delete body[key]
+          } else if (data !== body[key]) {
+            body[key] = data
+          }
+        })
+        ctx.body = new URLSearchParams(ctx.body as any)
+      }
+
+      if (
         (globalThis.FormData && ctx.body instanceof FormData) ||
         ctx.body instanceof URLSearchParams
       ) {
@@ -120,22 +138,22 @@ export class MediaWikiApi {
         // Adjust query
         const searchParams = new URLSearchParams(ctx.query as any)
         !searchParams.has('format') &&
-          searchParams.set('format', '' + body.get('format') || 'json')
+          searchParams.set('format', '' + (body.get('format') || 'json'))
         !searchParams.has('formatversion') &&
           searchParams.set(
             'formatversion',
-            '' + body.get('formatversion') || '2'
+            '' + (body.get('formatversion') || '2')
           )
         body.has('origin') &&
           searchParams.set('origin', '' + body.get('origin'))
-        ctx.query = searchParams
+        ctx.query = Object.fromEntries(searchParams)
       }
 
       return ctx
     })
 
     // Adjust query
-    instance.on('beforeRequest', (ctx) => {
+    instance.on('beforeInit', (ctx) => {
       ctx.query = ctx.query as Record<string, any>
       for (const key in ctx.query) {
         const data = MediaWikiApi.normalizeParamValue(ctx.query[key])
@@ -150,6 +168,8 @@ export class MediaWikiApi {
 
     // Adjust origin param
     instance.on('beforeRequest', (ctx) => {
+      const rawRequest = ctx.rawRequest!
+
       const url = new URL(ctx.url!)
       if (url.searchParams.has('origin')) {
         const origin = encodeURIComponent(
@@ -159,6 +179,9 @@ export class MediaWikiApi {
         url.searchParams.delete('origin')
         ctx.url = `${url}${url.search ? '&' : '?'}origin=${origin}`
       }
+
+      ctx.rawRequest = new Request(ctx.url, rawRequest)
+
       return ctx
     })
 
@@ -193,10 +216,7 @@ export class MediaWikiApi {
     })
   }
   post<T = any>(data: MwApiParams, options?: FexiosRequestOptions) {
-    return this.request.post<T>('', {
-      data,
-      ...options,
-    })
+    return this.request.post<T>('', data, options)
   }
 
   async login(
@@ -351,7 +371,7 @@ export class MediaWikiApi {
 }
 
 export class MediaWikiForeignApi extends MediaWikiApi {
-  constructor(baseURL?: string, options?: FexiosRequestOptions) {
+  constructor(baseURL?: string, options?: Partial<FexiosConfigs>) {
     super(baseURL, {
       credentials: 'include',
       ...options,
