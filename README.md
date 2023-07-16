@@ -21,9 +21,9 @@ The library provides the out of box accessing to MediaWiki API in both browsers 
 - With unit tests
 - User authentication supports out of the box \*(also applicable to Node.js!)
 
-## 开箱即用/Out of box
+## 开箱即用 Out of box
 
-**安装/installation**
+**安装 Installation**
 
 ```sh
 # Via pnpm:
@@ -42,7 +42,7 @@ const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
 // ...
 ```
 
-**在浏览器中直接使用/Use directly in the browser**
+**在浏览器中直接使用 Use directly in the browser**
 
 ```js
 import('https://unpkg.com/wiki-saikou?module').then(({ MediaWikiApi }) => {
@@ -53,7 +53,7 @@ import('https://unpkg.com/wiki-saikou?module').then(({ MediaWikiApi }) => {
 
 Then use it just like the `new mw.Api()`
 
-## 使用方法/Usage
+## 使用方法 Usage
 
 You can find some sample code snippets [here](test/).
 
@@ -98,11 +98,11 @@ type MwTokenName =
   | 'watch'
 ```
 
-### Auxiliary utilities
+### 工具函数 Auxiliary utilities
 
-#### `get request` {AxiosInstance}
+#### `get request` {Fexios}
 
-Get `Lyla` instance of current MediaWikiApi instance
+Get `Fexios` instance of current MediaWikiApi instance
 
 #### `MediaWikiApi.normalizeParamValue(params: MwApiParams[keyof MwApiParams]): string | File | undefined` (static)
 

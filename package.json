@@ -32,7 +32,9 @@
     "node",
     "api-wrapper",
     "typescript",
-    "axios"
+    "fetch",
+    "fetch-api",
+    "fexios"
   ],
   "author": "Dragon-Fish <dragon-fish@qq.com>",
   "license": "MIT",
