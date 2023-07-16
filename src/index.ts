@@ -168,8 +168,6 @@ export class MediaWikiApi {
 
     // Adjust origin param
     instance.on('beforeRequest', (ctx) => {
-      const rawRequest = ctx.rawRequest!
-
       const url = new URL(ctx.url!)
       if (url.searchParams.has('origin')) {
         const origin = encodeURIComponent(
@@ -179,9 +177,6 @@ export class MediaWikiApi {
         url.searchParams.delete('origin')
         ctx.url = `${url}${url.search ? '&' : '?'}origin=${origin}`
       }
-
-      ctx.rawRequest = new Request(ctx.url, rawRequest)
-
       return ctx
     })
 
