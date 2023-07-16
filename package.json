@@ -42,7 +42,8 @@
   "homepage": "https://github.com/moegirlwiki/wiki-saikou#readme",
   "dependencies": {
     "@vue/reactivity": "^3.3.4",
-    "fexios": "^1.2.0"
+    "fexios": "^1.2.0",
+    "tslib": "^2.6.0"
   },
   "devDependencies": {
     "@types/chai": "^4.3.5",
@@ -56,7 +57,6 @@
     "mocha": "^10.2.0",
     "rimraf": "^5.0.1",
     "ts-mocha": "^10.0.0",
-    "tslib": "^2.6.0",
     "tsup": "^7.1.0",
     "tsx": "^3.12.7",
     "typescript": "^5.1.6",

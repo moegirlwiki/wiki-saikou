@@ -11,6 +11,9 @@ dependencies:
   fexios:
     specifier: ^1.2.0
     version: 1.2.0
+  tslib:
+    specifier: ^2.6.0
+    version: 2.6.0
 
 devDependencies:
   '@types/chai':
@@ -46,9 +49,6 @@ devDependencies:
   ts-mocha:
     specifier: ^10.0.0
     version: 10.0.0(mocha@10.2.0)
-  tslib:
-    specifier: ^2.6.0
-    version: 2.6.0
   tsup:
     specifier: ^7.1.0
     version: 7.1.0(typescript@5.1.6)
@@ -2059,7 +2059,7 @@ packages:
 
   /tslib@2.6.0:
     resolution: {integrity: sha512-7At1WUettjcSRHXCyYtTselblcHl9PJFFVKiCAy/bY97+BPZXSQ2wbq0P9s8tK2G7dFQfNnlJnPAiArVBVBsfA==}
-    dev: true
+    dev: false
 
   /tsup@7.1.0(typescript@5.1.6):
     resolution: {integrity: sha512-mazl/GRAk70j8S43/AbSYXGgvRP54oQeX8Un4iZxzATHt0roW0t6HYDVZIXMw0ZQIpvr1nFMniIVnN5186lW7w==}
