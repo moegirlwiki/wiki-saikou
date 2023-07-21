@@ -1,4 +1,4 @@
-lockfileVersion: '6.1'
+lockfileVersion: '6.0'
 
 settings:
   autoInstallPeers: true
@@ -9,8 +9,8 @@ dependencies:
     specifier: ^3.3.4
     version: 3.3.4
   fexios:
-    specifier: ^1.2.0
-    version: 1.2.0
+    specifier: ^1.3.0
+    version: 1.3.0
   tslib:
     specifier: ^2.6.0
     version: 2.6.0
@@ -1158,8 +1158,9 @@ packages:
       reusify: 1.0.4
     dev: true
 
-  /fexios@1.2.0:
-    resolution: {integrity: sha512-UTXmXvYT/tAVR+Ox3WrdWxJTuriGsh1yPR1/XldM6UFyMMED9pYiDodZydZ1k3rjyoAwd3FDYlcFp0Oiq/h2Xg==}
+  /fexios@1.3.0:
+    resolution: {integrity: sha512-OFRMKUkEE/hqIS6fG2WD5tmFTPqpCwhuBu1iwJho41ufHUPsNna+vLokzTuFGk2gMNF1fqy2M0pXwEUqKhza2g==}
+    engines: {node: ^16.15.0 || >=18.0.0}
     dev: false
 
   /fill-range@7.0.1:
