@@ -21,9 +21,9 @@ The library provides the out of box accessing to MediaWiki API in both browsers 
 - With unit tests
 - User authentication supports out of the box \*(also applicable to Node.js!)
 
-## 开箱即用/Out of box
+## 开箱即用 Out of box
 
-**安装/installation**
+**安装 Installation**
 
 ```sh
 # Via pnpm:
@@ -42,7 +42,7 @@ const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
 // ...
 ```
 
-**在浏览器中直接使用/Use directly in the browser**
+**在浏览器中直接使用 Use directly in the browser**
 
 ```js
 import('https://unpkg.com/wiki-saikou?module').then(({ MediaWikiApi }) => {
@@ -53,7 +53,7 @@ import('https://unpkg.com/wiki-saikou?module').then(({ MediaWikiApi }) => {
 
 Then use it just like the `new mw.Api()`
 
-## 使用方法/Usage
+## 使用方法 Usage
 
 You can find some sample code snippets [here](test/).
 
@@ -65,7 +65,7 @@ Below is the documentation of MediaWikiApi.
 
 **Main methods**:
 
-#### `new MediaWikiApi(baseURL?: string, options?: LylaRequestOptions)`
+#### `new MediaWikiApi(baseURL?: string, options?: Partial<FexiosConfigs>)`
 
 - `baseURL`: API endpoint of your target wiki site (e.g. https://mediawiki.org/w/api.php)
   - **Not required but with conditions**: If you are using it in the browser environment, and the website runs MediaWiki. The instance will automatically use the API endpoint of current wiki.
@@ -75,15 +75,15 @@ Below is the documentation of MediaWikiApi.
 
 Login your account.
 
-#### `get<T = any>(params: MwApiParams, options?: LylaRequestOptions): Promise<LylaResponseWith<T>>`
+#### `get<T = any>(params: MwApiParams, options?: FexiosRequestOptions): Promise<FexiosFinalContext<T>>`
 
 Make `GET` request
 
-#### `post<T = any>(body: MwApiParams, options?: LylaRequestOptions): Promise<LylaResponseWith<T>>`
+#### `post<T = any>(body: MwApiParams, options?: LylaRequestOptions): Promise<FexiosFinalContext<T>>`
 
 Make `POST` request
 
-#### `postWithToken<T = any>(tokenType: MwTokenName, body: MwApiParams, options?: LylaRequestOptions): Promise<LylaResponseWith<T>>`
+#### `postWithToken<T = any>(tokenType: MwTokenName, body: MwApiParams, options?: LylaRequestOptions): Promise<FexiosFinalContext<T>>`
 
 Make `POST` request with specified token.
 
@@ -98,11 +98,11 @@ type MwTokenName =
   | 'watch'
 ```
 
-### Auxiliary utilities
+### 工具函数 Auxiliary utilities
 
-#### `get request` {AxiosInstance}
+#### `get request` {Fexios}
 
-Get `Lyla` instance of current MediaWikiApi instance
+Get `Fexios` instance of current MediaWikiApi instance
 
 #### `MediaWikiApi.normalizeParamValue(params: MwApiParams[keyof MwApiParams]): string | File | undefined` (static)
 
@@ -111,9 +111,9 @@ Normalize input params to standard MediaWiki request params.
 - `string[] → string`: `['foo', 'bar', 'baz'] → 'foo|bar|baz`
 - `false → undefined`: remove false items
 
-#### `MediaWikiApi.createLylaInstance(baseURL: string, options?: LylaRequestOptions): Lyla` (static)
+#### `MediaWikiApi.createRequestHandler(baseURL: string, options?: Partial<FexiosRequestOptions>): Fexios` (static)
 
-Create your own Lyla instance.
+Create your own Fexios instance.
 
 **Warning: The instance created by this method does not include responsive getters/setters (described below) and the out of box cookie controls.**
 

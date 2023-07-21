@@ -1,6 +1,6 @@
 {
   "name": "wiki-saikou",
-  "version": "2.0.0",
+  "version": "3.0.0-rc.1",
   "description": "The library provides the out of box accessing to MediaWiki API in both browsers & Node.js, and the syntax is very similar to vanilla `new mw.Api()`. TypeScript definition included~",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
@@ -32,7 +32,9 @@
     "node",
     "api-wrapper",
     "typescript",
-    "axios"
+    "fetch",
+    "fetch-api",
+    "fexios"
   ],
   "author": "Dragon-Fish <dragon-fish@qq.com>",
   "license": "MIT",
@@ -41,8 +43,9 @@
   },
   "homepage": "https://github.com/moegirlwiki/wiki-saikou#readme",
   "dependencies": {
-    "@lylajs/core": "^1.2.0",
-    "@vue/reactivity": "^3.3.4"
+    "@vue/reactivity": "^3.3.4",
+    "fexios": "^1.3.0",
+    "tslib": "^2.6.0"
   },
   "devDependencies": {
     "@types/chai": "^4.3.5",
@@ -56,7 +59,6 @@
     "mocha": "^10.2.0",
     "rimraf": "^5.0.1",
     "ts-mocha": "^10.0.0",
-    "tslib": "^2.6.0",
     "tsup": "^7.1.0",
     "tsx": "^3.12.7",
     "typescript": "^5.1.6",
