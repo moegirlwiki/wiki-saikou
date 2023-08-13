@@ -316,7 +316,7 @@ export class MediaWikiApi {
           [data?.errors?.[0].code, data?.error?.code].includes('badtoken') ||
           ['NeedToken', 'WrongToken'].includes(data?.login?.result)
         ) {
-          return this.postWithToken(tokenType, data, {
+          return this.postWithToken(tokenType, ...body, {
             tokenName,
             retry: retry - 1,
             noCache: true,
