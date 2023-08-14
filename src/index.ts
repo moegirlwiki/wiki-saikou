@@ -25,10 +25,12 @@ export class MediaWikiApi {
   constructor(baseURL?: string, options?: Partial<FexiosConfigs>) {
     // For MediaWiki environment
     if (!baseURL && typeof window === 'object' && (window as any).mediaWiki) {
-      const scriptPath: string | undefined = (
-        window as any
-      ).mediaWiki?.config?.get('wgScriptPath')
-      typeof scriptPath === 'string' && (baseURL = `${scriptPath}/api.php`)
+      const { wgServer, wgScriptPath } =
+        (window as any).mediaWiki?.config?.get(['wgServer', 'wgScriptPath']) ||
+        {}
+      if (typeof wgServer === 'string' && typeof wgScriptPath === 'string') {
+        baseURL = `${wgServer}${wgScriptPath}/api.php`
+      }
     }
     if (typeof baseURL !== 'string') {
       throw new Error('baseURL is undefined')
