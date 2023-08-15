@@ -16,14 +16,14 @@ import {
 
 export class MediaWikiApi {
   baseURL: Ref<string>
-  #requestHandler: ComputedRef<Fexios>
-  #defaultOptions: Ref<Partial<FexiosConfigs>>
-  #defaultParams: Ref<MwApiParams>
-  #tokens: Record<string, string>
+  private requestHandlerRef: ComputedRef<Fexios>
+  private defaultOptionsRef: Ref<Partial<FexiosConfigs>>
+  private defaultParamsRef: Ref<MwApiParams>
+  private tokens: Record<string, string>
   cookies: Record<string, string> = {}
 
   constructor(baseURL?: string, options?: Partial<FexiosConfigs>) {
-    // For MediaWiki environment
+    // For MediaWiki browser environment
     if (!baseURL && typeof window === 'object' && (window as any).mediaWiki) {
       const { wgServer, wgScriptPath } =
         (window as any).mediaWiki?.config?.get(['wgServer', 'wgScriptPath']) ||
@@ -37,9 +37,9 @@ export class MediaWikiApi {
     }
     // Init
     this.baseURL = ref(baseURL)
-    this.#tokens = {}
-    this.#defaultParams = ref({})
-    this.#defaultOptions = ref({} as any)
+    this.tokens = {}
+    this.defaultParamsRef = ref({})
+    this.defaultOptionsRef = ref({} as any)
 
     // Set default values
     this.defaultParams = {
@@ -50,7 +50,7 @@ export class MediaWikiApi {
     }
     this.defaultOptions = options || {}
 
-    this.#requestHandler = computed(() => {
+    this.requestHandlerRef = computed(() => {
       const instance = MediaWikiApi.createRequestHandler(this.baseURL.value, {
         ...this.defaultOptions,
         query: this.defaultParams as any,
@@ -188,21 +188,21 @@ export class MediaWikiApi {
   /** Syntactic Sugar */
   // request handler
   get request() {
-    return this.#requestHandler.value
+    return this.requestHandlerRef.value
   }
   // userOptions
   get defaultOptions() {
-    return this.#defaultOptions.value
+    return this.defaultOptionsRef.value
   }
   set defaultOptions(options: Partial<FexiosConfigs>) {
-    this.#defaultOptions.value = options
+    this.defaultOptionsRef.value = options
   }
   // defaultParams
   get defaultParams() {
-    return this.#defaultParams.value
+    return this.defaultParamsRef.value
   }
   set defaultParams(params: MwApiParams) {
-    this.#defaultParams.value = params
+    this.defaultParamsRef.value = params
   }
 
   /** Base methods encapsulation */
@@ -283,15 +283,15 @@ export class MediaWikiApi {
       meta: 'tokens',
       type,
     })
-    this.#tokens = { ...this.#tokens, ...data.query.tokens }
-    return this.#tokens
+    this.tokens = { ...this.tokens, ...data.query.tokens }
+    return this.tokens
   }
   async token(type: MwTokenName = 'csrf', noCache = false) {
-    if (!this.#tokens[`${type}token`] || noCache) {
-      delete this.#tokens[`${type}token`]
+    if (!this.tokens[`${type}token`] || noCache) {
+      delete this.tokens[`${type}token`]
       await this.getTokens([type])
     }
-    return this.#tokens[`${type}token`]
+    return this.tokens[`${type}token`]
   }
 
   async postWithToken<T = any>(
@@ -327,7 +327,7 @@ export class MediaWikiApi {
         return Promise.reject(data)
       })
       .finally(() => {
-        delete this.#tokens[`${tokenType}token`]
+        delete this.tokens[`${tokenType}token`]
       })
   }
   postWithEditToken<T = any>(body: MwApiParams) {
