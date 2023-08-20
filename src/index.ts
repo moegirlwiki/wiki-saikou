@@ -222,7 +222,8 @@ export class MediaWikiApi {
   async login(
     lgname: string,
     lgpassword: string,
-    params?: MwApiParams
+    params?: MwApiParams,
+    options?: { retry?: number; noCache?: boolean }
   ): Promise<{
     result: 'Success' | 'NeedToken' | 'WrongToken' | 'Failed'
     token?: string
@@ -242,7 +243,7 @@ export class MediaWikiApi {
         lgpassword,
         ...params,
       },
-      { tokenName: 'lgtoken' }
+      { tokenName: 'lgtoken', ...options }
     )
     if (data?.login?.result !== 'Success') {
       throw new Error(
