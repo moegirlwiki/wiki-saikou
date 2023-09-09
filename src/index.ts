@@ -223,7 +223,7 @@ export class MediaWikiApi {
     lgname: string,
     lgpassword: string,
     params?: MwApiParams,
-    options?: { retry?: number; noCache?: boolean }
+    postOptions?: { retry?: number; noCache?: boolean }
   ): Promise<{
     result: 'Success' | 'NeedToken' | 'WrongToken' | 'Failed'
     token?: string
@@ -243,7 +243,7 @@ export class MediaWikiApi {
         lgpassword,
         ...params,
       },
-      { tokenName: 'lgtoken', ...options }
+      { tokenName: 'lgtoken', ...postOptions }
     )
     if (data?.login?.result !== 'Success') {
       throw new Error(
