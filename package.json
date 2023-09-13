@@ -44,15 +44,15 @@
   "homepage": "https://github.com/moegirlwiki/wiki-saikou#readme",
   "dependencies": {
     "@vue/reactivity": "^3.3.4",
-    "fexios": "^1.4.0",
-    "tslib": "^2.6.1"
+    "fexios": "^1.5.0",
+    "tslib": "^2.6.2"
   },
   "devDependencies": {
-    "@types/chai": "^4.3.5",
-    "@types/chai-as-promised": "^7.1.5",
+    "@types/chai": "^4.3.6",
+    "@types/chai-as-promised": "^7.1.6",
     "@types/mocha": "^10.0.1",
-    "@types/node": "^18",
-    "chai": "^4.3.7",
+    "@types/node": "^18.17.15",
+    "chai": "^4.3.8",
     "chai-as-promised": "^7.1.1",
     "dotenv": "^16.3.1",
     "esbuild-register": "^3.4.2",
@@ -60,9 +60,9 @@
     "rimraf": "^5.0.1",
     "ts-mocha": "^10.0.0",
     "tsup": "^7.2.0",
-    "tsx": "^3.12.7",
-    "typescript": "^5.1.6",
+    "tsx": "^3.12.9",
+    "typescript": "^5.2.2",
     "vite": "^4.4.9",
-    "vite-plugin-dts": "^3.5.2"
+    "vite-plugin-dts": "^3.5.3"
   }
 }
