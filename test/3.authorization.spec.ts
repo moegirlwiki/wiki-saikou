@@ -2,7 +2,7 @@ import 'dotenv/config'
 import { describe, it } from 'mocha'
 import { expect } from 'chai'
 import { env } from 'process'
-import { MediaWikiApi } from '../src/index'
+import { MediaWikiApi, WikiSaikouErrorCode } from '../src/index'
 
 const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php', {
   headers: {
@@ -33,6 +33,7 @@ describe('Authorization', () => {
       await api.login('invalid', 'credentials')
     } catch (e) {
       expect(e).to.be.an('error')
+      expect(e?.code).to.equal(WikiSaikouErrorCode.LOGIN_FAILED)
     }
   })
 })

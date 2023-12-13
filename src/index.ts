@@ -149,6 +149,10 @@ export class MediaWikiApi {
         body.has('origin') &&
           searchParams.set('origin', '' + body.get('origin'))
         ctx.query = Object.fromEntries(searchParams)
+
+        // DONT REMOVE THIS
+        // TODO: Remove duplicate parameters. There should be a better solution.
+        body.has('action') && (ctx.query.action = '' + body.get('action'))
       }
 
       return ctx
@@ -235,19 +239,59 @@ export class MediaWikiApi {
     lgusername: string
   }> {
     this.defaultOptions.credentials = 'include'
-    const { data } = await this.postWithToken(
-      'login',
-      {
-        action: 'login',
-        lgname,
-        lgpassword,
-        ...params,
-      },
-      { tokenName: 'lgtoken', ...postOptions }
-    )
+
+    postOptions = postOptions || {}
+    postOptions.retry ??= 3
+
+    if (postOptions.retry < 1) {
+      throw new WikiSaikouError(
+        WikiSaikouErrorCode.LOGIN_RETRY_LIMIT_EXCEEDED,
+        'The limit of the number of times to automatically re-login has been exceeded'
+      )
+    }
+
+    let data: any
+    try {
+      const res = await this.postWithToken(
+        'login',
+        {
+          action: 'login',
+          lgname,
+          lgpassword,
+          ...params,
+        },
+        { tokenName: 'lgtoken', ...postOptions }
+      )
+      if (res?.data?.login) {
+        data = res.data
+      } else {
+        throw res
+      }
+    } catch (e: any) {
+      if (e instanceof WikiSaikouError) {
+        throw e
+      } else if (e?.ok === false) {
+        return this.login(lgname, lgpassword, params, {
+          ...postOptions,
+          noCache: true,
+          retry: postOptions.retry - 1,
+        })
+      } else {
+        throw new WikiSaikouError(
+          WikiSaikouErrorCode.HTTP_ERROR,
+          "The server returns an error, but it doesn't seem to be caused by MediaWiki",
+          e
+        )
+      }
+    }
+
     if (data?.login?.result !== 'Success') {
-      throw new Error(
-        data?.login?.reason?.text || data?.login?.result || 'Login failed'
+      throw new WikiSaikouError(
+        WikiSaikouErrorCode.LOGIN_FAILED,
+        data?.login?.reason?.text ||
+          data?.login?.result ||
+          'Login failed with unknown reason',
+        data
       )
     }
     return data.login
@@ -302,34 +346,38 @@ export class MediaWikiApi {
   ): Promise<FexiosFinalContext<T>> {
     const { tokenName = 'token', retry = 3, noCache = false } = options || {}
     if (retry < 1) {
-      return Promise.reject({
-        error: {
-          code: 'WIKI_SAIKOU_TOKEN_RETRY_LIMIT_EXCEEDED',
-          info: 'The limit of the number of times to automatically re-acquire the token has been exceeded',
-        },
-      })
+      throw new WikiSaikouError(
+        WikiSaikouErrorCode.TOKEN_RETRY_LIMIT_EXCEEDED,
+        'The limit of the number of times to automatically re-acquire the token has been exceeded'
+      )
     }
     const token = await this.token(tokenType, noCache)
     return this.post<T>({
       [tokenName]: token,
       ...body,
-    })
-      .catch(({ data }) => {
-        if (
-          [data?.errors?.[0].code, data?.error?.code].includes('badtoken') ||
-          ['NeedToken', 'WrongToken'].includes(data?.login?.result)
-        ) {
-          return this.postWithToken(tokenType, body, {
-            tokenName,
-            retry: retry - 1,
-            noCache: true,
-          })
-        }
+    }).catch((e) => {
+      const data = e.data
+      if (
+        [data?.errors?.[0].code, data?.error?.code].includes('badtoken') ||
+        ['NeedToken', 'WrongToken'].includes(data?.login?.result) ||
+        e?.ok === false
+      ) {
+        return this.postWithToken(tokenType, body, {
+          tokenName,
+          retry: retry - 1,
+          noCache: true,
+        })
+      }
+      if (typeof data === 'object' && data !== null) {
         return Promise.reject(data)
-      })
-      .finally(() => {
-        delete this.tokens[`${tokenType}token`]
-      })
+      } else {
+        throw new WikiSaikouError(
+          WikiSaikouErrorCode.HTTP_ERROR,
+          'The server returns an error, but it doesn’t seem to be caused by MediaWiki',
+          e
+        )
+      }
+    })
   }
   postWithEditToken<T = any>(body: MwApiParams) {
     return this.postWithToken<T>('csrf', body)
@@ -388,6 +436,24 @@ export class MediaWikiForeignApi extends MediaWikiApi {
 // Aliases
 export default MediaWikiApi
 export { MediaWikiApi as MwApi, MediaWikiForeignApi as ForeignApi }
+
+// Errors
+export enum WikiSaikouErrorCode {
+  HTTP_ERROR = 'HTTP_ERROR',
+  LOGIN_FAILED = 'LOGIN_FAILED',
+  LOGIN_RETRY_LIMIT_EXCEEDED = 'LOGIN_RETRY_LIMIT_EXCEEDED',
+  TOKEN_RETRY_LIMIT_EXCEEDED = 'TOKEN_RETRY_LIMIT_EXCEEDED',
+}
+export class WikiSaikouError extends Error {
+  readonly name = 'WikiSaikouError'
+  constructor(
+    readonly code: WikiSaikouErrorCode,
+    readonly message: string = '',
+    readonly data?: FexiosFinalContext
+  ) {
+    super()
+  }
+}
 
 // Types
 export type MwApiParams = Record<
