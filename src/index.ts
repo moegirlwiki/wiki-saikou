@@ -250,6 +250,7 @@ export class MediaWikiApi {
       )
     }
 
+    // FIXME: This is ugly
     let data: any
     try {
       const res = await this.postWithToken(
@@ -345,42 +346,59 @@ export class MediaWikiApi {
     options?: { tokenName?: string; retry?: number; noCache?: boolean }
   ): Promise<FexiosFinalContext<T>> {
     const { tokenName = 'token', retry = 3, noCache = false } = options || {}
+
     if (retry < 1) {
       throw new WikiSaikouError(
         WikiSaikouErrorCode.TOKEN_RETRY_LIMIT_EXCEEDED,
         'The limit of the number of times to automatically re-acquire the token has been exceeded'
       )
     }
+
     const token = await this.token(tokenType, noCache)
+
+    const doRetry = () =>
+      this.postWithToken(tokenType, body, {
+        tokenName,
+        retry: retry - 1,
+        noCache: true,
+      })
+
     return this.post<T>({
       [tokenName]: token,
       ...body,
-    }).catch((e) => {
-      const data = e.data
-      if (
-        [data?.errors?.[0].code, data?.error?.code].includes('badtoken') ||
-        ['NeedToken', 'WrongToken'].includes(data?.login?.result) ||
-        e?.ok === false
-      ) {
-        return this.postWithToken(tokenType, body, {
-          tokenName,
-          retry: retry - 1,
-          noCache: true,
-        })
-      }
-      if (typeof data === 'object' && data !== null) {
-        return Promise.reject(data)
-      } else {
-        throw new WikiSaikouError(
-          WikiSaikouErrorCode.HTTP_ERROR,
-          'The server returns an error, but it doesn’t seem to be caused by MediaWiki',
-          e
-        )
-      }
     })
+      .then((ctx) => {
+        const data = ctx.data
+        if (MediaWikiApi.isBadTokenError(data)) {
+          return doRetry()
+        }
+        return ctx
+      })
+      .catch((err) => {
+        const data = err.data
+        if (MediaWikiApi.isBadTokenError(data) || err?.ok === false) {
+          return doRetry()
+        } else if (typeof data === 'object' && data !== null) {
+          return Promise.reject(data)
+        } else {
+          throw new WikiSaikouError(
+            WikiSaikouErrorCode.HTTP_ERROR,
+            'The server returns an error, but it doesn’t seem to be caused by MediaWiki',
+            err
+          )
+        }
+      })
   }
   postWithEditToken<T = any>(body: MwApiParams) {
     return this.postWithToken<T>('csrf', body)
+  }
+
+  static isBadTokenError(data?: any) {
+    return (
+      data?.error?.code === 'badtoken' ||
+      data?.errors?.some((i: any) => i.code === 'badtoken') ||
+      ['NeedToken', 'WrongToken'].includes(data?.login?.result)
+    )
   }
 
   async getMessages(ammessages: string[], amlang = 'zh', options: MwApiParams) {
@@ -449,7 +467,7 @@ export class WikiSaikouError extends Error {
   constructor(
     readonly code: WikiSaikouErrorCode,
     readonly message: string = '',
-    readonly data?: FexiosFinalContext
+    readonly cause?: FexiosFinalContext
   ) {
     super()
   }
