@@ -322,20 +322,38 @@ export class MediaWikiApi {
   }
 
   /** Token Handler */
-  async getTokens(type: MwTokenName[] = ['csrf']) {
+  async getTokens(type: MwTokenName[] = ['csrf'], retry: number = 3): Promise<Record<string, string>> {
+    if (retry < 1) {
+      throw new WikiSaikouError(
+        WikiSaikouErrorCode.TOKEN_RETRY_LIMIT_EXCEEDED,
+        'The limit of the number of times to automatically re-acquire the token has been exceeded'
+      )
+    }
     this.defaultOptions.credentials = 'include'
-    const { data } = await this.get({
-      action: 'query',
-      meta: 'tokens',
-      type,
-    })
-    this.tokens = { ...this.tokens, ...data.query.tokens }
-    return this.tokens
+    try {
+      const { data } = await this.get({
+        action: 'query',
+        meta: 'tokens',
+        type,
+      })
+      this.tokens = { ...this.tokens, ...data.query.tokens }
+      return this.tokens
+    } catch (err) {
+      if (retry < 1) {
+        throw new WikiSaikouError(
+          WikiSaikouErrorCode.HTTP_ERROR,
+          "The server returns an error, but it doesn't seem to be caused by MediaWiki",
+          err
+        )
+      } else {
+        return this.getTokens(type, retry - 1);
+      }
+    }
   }
-  async token(type: MwTokenName = 'csrf', noCache = false) {
+  async token(type: MwTokenName = 'csrf', noCache = false, retry: number = 3) {
     if (!this.tokens[`${type}token`] || noCache) {
       delete this.tokens[`${type}token`]
-      await this.getTokens([type])
+      await this.getTokens([type], retry)
     }
     return this.tokens[`${type}token`]
   }
@@ -343,9 +361,9 @@ export class MediaWikiApi {
   async postWithToken<T = any>(
     tokenType: MwTokenName,
     body: MwApiParams,
-    options?: { tokenName?: string; retry?: number; noCache?: boolean }
+    options?: { tokenName?: string; retry?: number; noCache?: boolean; tokenRetry?: number }
   ): Promise<FexiosFinalContext<T>> {
-    const { tokenName = 'token', retry = 3, noCache = false } = options || {}
+    const { tokenName = 'token', retry = 3, noCache = false, tokenRetry = 3 } = options || {}
 
     if (retry < 1) {
       throw new WikiSaikouError(
@@ -354,7 +372,7 @@ export class MediaWikiApi {
       )
     }
 
-    const token = await this.token(tokenType, noCache)
+    const token = await this.token(tokenType, noCache, tokenRetry)
 
     const doRetry = () =>
       this.postWithToken(tokenType, body, {
