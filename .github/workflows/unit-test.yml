@@ -2,14 +2,16 @@ name: Unit test for MediaWikiApi core
 on:
   push:
     branches: [master, dev, actions]
-  pull_request:
-    branches: [master, dev, actions]
+  pull_request_review:
+    types: [submitted]
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   test:
     # The type of runner that the job will run on
     runs-on: ubuntu-latest
+
+    if: github.event_name == 'push' || (github.event_name == 'pull_request_review' && github.event.review.state == 'APPROVED')
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
