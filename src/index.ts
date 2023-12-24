@@ -227,7 +227,7 @@ export class MediaWikiApi {
     lgname: string,
     lgpassword: string,
     params?: MwApiParams,
-    postOptions?: { retry?: number; noCache?: boolean }
+    postOptions?: { retry?: number; noCache?: boolean, tokenRetry?: number }
   ): Promise<{
     result: 'Success' | 'NeedToken' | 'WrongToken' | 'Failed'
     token?: string
