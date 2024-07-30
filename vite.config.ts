@@ -1,6 +1,5 @@
 import { resolve } from 'path'
 import { defineConfig } from 'vite'
-import dts from 'vite-plugin-dts'
 
 const PROD =
   process.env.NODE_ENV === 'production' &&
@@ -8,21 +7,18 @@ const PROD =
 
 export default defineConfig({
   build: {
+    outDir: 'dist',
     lib: {
       name: 'WikiSaikou',
       fileName: 'index',
-      entry: resolve(__dirname, 'src/index.ts'),
-      formats: ['umd', 'es', 'iife'],
+      entry: resolve(import.meta.dirname, 'src/index.ts'),
+      formats: ['umd', 'cjs', 'es', 'iife'],
     },
     sourcemap: true,
   },
   esbuild: {
     drop: PROD ? ['console'] : [],
   },
-  define: {
-    // @FIX Uncaught ReferenceError: process is not defined
-    // @link https://github.com/vitejs/vite/issues/9186
-    'process.env.NODE_ENV': '"production"',
-  },
-  plugins: [dts()],
+  define: {},
+  plugins: [],
 })
