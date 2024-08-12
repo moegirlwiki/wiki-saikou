@@ -19,6 +19,6 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "test", "vite.config.*", "vitest.config.*"],
+  "include": ["src"],
   "exclude": ["lib", "dist"]
 }
