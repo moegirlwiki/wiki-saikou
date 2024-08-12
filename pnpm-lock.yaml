@@ -12,8 +12,8 @@ importers:
         specifier: ^3.4.34
         version: 3.4.34
       fexios:
-        specifier: ^1.6.1
-        version: 1.6.1
+        specifier: ^1.7.1
+        version: 1.7.1
       tslib:
         specifier: ^2.6.3
         version: 2.6.3
@@ -909,8 +909,8 @@ packages:
   fast-deep-equal@3.1.3:
     resolution: {integrity: sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==}
 
-  fexios@1.6.1:
-    resolution: {integrity: sha512-HRKqN5NBAaI1uHCRUdyslfecFTRhbF/DauBzctwzrEGrs4uElxl4vSm5cMPOcFPdcHJLOVzHiMMKSa3QpR+z+g==}
+  fexios@1.7.1:
+    resolution: {integrity: sha512-rVbeaHQBCqpWfKLFEkSwXiONu4f8QdwIGXZp9JhsVwG+EksyjsgcCWXzL43I8wexSciVATXL+usk/pigEeCpDg==}
     engines: {node: ^16.15.0 || >=18.0.0}
 
   fill-range@7.0.1:
@@ -2318,7 +2318,7 @@ snapshots:
 
   fast-deep-equal@3.1.3: {}
 
-  fexios@1.6.1:
+  fexios@1.7.1:
     dependencies:
       tslib: 2.6.3
 

@@ -52,7 +52,7 @@
   "homepage": "https://github.com/moegirlwiki/wiki-saikou#readme",
   "dependencies": {
     "@vue/reactivity": "^3.4.34",
-    "fexios": "^1.6.1",
+    "fexios": "^1.7.1",
     "tslib": "^2.6.3"
   },
   "devDependencies": {
