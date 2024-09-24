@@ -1,3 +1,4 @@
+import { copyFile } from 'fs/promises'
 import { resolve } from 'path'
 import { defineConfig } from 'vite'
 import dts from 'vite-plugin-dts'
@@ -8,11 +9,12 @@ const PROD =
 
 export default defineConfig({
   build: {
+    outDir: 'dist',
     lib: {
       name: 'WikiSaikou',
       fileName: 'index',
-      entry: resolve(__dirname, 'src/index.ts'),
-      formats: ['umd', 'es', 'iife'],
+      entry: resolve(import.meta.dirname, 'src/index.ts'),
+      formats: ['umd', 'cjs', 'es', 'iife'],
     },
     sourcemap: true,
   },
@@ -24,5 +26,16 @@ export default defineConfig({
     // @link https://github.com/vitejs/vite/issues/9186
     'process.env.NODE_ENV': '"production"',
   },
-  plugins: [dts()],
+  plugins: [
+    dts(),
+    {
+      name: 'cts',
+      closeBundle() {
+        copyFile(
+          resolve(import.meta.dirname, 'dist/index.d.ts'),
+          resolve(import.meta.dirname, 'dist/index.d.cts')
+        )
+      },
+    },
+  ],
 })

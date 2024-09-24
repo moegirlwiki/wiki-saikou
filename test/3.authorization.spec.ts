@@ -31,7 +31,7 @@ describe('Authorization', () => {
   it('Should throw an error if login fails', async () => {
     try {
       await api.login('invalid', 'credentials')
-    } catch (e) {
+    } catch (e: any) {
       expect(e).to.be.an('error')
       expect(e?.code).to.equal(WikiSaikouErrorCode.LOGIN_FAILED)
     }

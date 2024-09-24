@@ -2,20 +2,20 @@
   "name": "wiki-saikou",
   "version": "3.3.1",
   "description": "The library provides the out of box accessing to MediaWiki API in both browsers & Node.js, and the syntax is very similar to vanilla `new mw.Api()`. TypeScript definition included~",
-  "type": "commonjs",
-  "main": "./lib/index.js",
-  "types": "./lib/index.d.ts",
-  "browser": "./dist/index.umd.js",
-  "module": "./dist/index.mjs",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "browser": "./dist/index.umd.cjs",
   "exports": {
     ".": {
       "types": {
-        "import": "./lib/index.d.ts",
-        "require": "./lib/index.d.ts"
+        "import": "./dist/index.d.ts",
+        "require": "./dist/index.cjs"
       },
-      "import": "./dist/index.mjs",
-      "require": "./lib/index.js",
-      "browser": "./dist/index.umd.js"
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "browser": "./dist/index.umd.cjs"
     }
   },
   "files": [
@@ -25,7 +25,7 @@
   "scripts": {
     "test": "mocha test/**/*.spec.ts",
     "clean": "rimraf dist lib",
-    "build": "npm run clean && tsc --module commonjs && vite build",
+    "build": "npm run clean && vite build",
     "prepublish": "npm run build"
   },
   "publishConfig": {
@@ -55,26 +55,27 @@
   },
   "homepage": "https://github.com/moegirlwiki/wiki-saikou#readme",
   "dependencies": {
-    "@vue/reactivity": "^3.3.4",
-    "fexios": "^1.5.0",
-    "tslib": "^2.6.2"
+    "@vue/reactivity": "^3.4.34",
+    "fexios": "^1.7.1",
+    "tslib": "^2.6.3"
   },
   "devDependencies": {
-    "@types/chai": "^4.3.6",
-    "@types/chai-as-promised": "^7.1.6",
-    "@types/mocha": "^10.0.1",
-    "@types/node": "^18.17.15",
-    "chai": "^4.3.8",
-    "chai-as-promised": "^7.1.1",
-    "dotenv": "^16.3.1",
-    "esbuild-register": "^3.4.2",
-    "mocha": "^10.2.0",
-    "rimraf": "^5.0.1",
+    "@types/chai": "^4.3.16",
+    "@types/chai-as-promised": "^7.1.8",
+    "@types/mocha": "^10.0.7",
+    "@types/node": "^20.14.13",
+    "chai": "^5.1.1",
+    "chai-as-promised": "^8.0.0",
+    "dotenv": "^16.4.5",
+    "esbuild-register": "^3.6.0",
+    "mocha": "^10.7.0",
+    "pkgroll": "^2.4.2",
+    "rimraf": "^6.0.1",
     "ts-mocha": "^10.0.0",
-    "tsup": "^7.2.0",
-    "tsx": "^3.12.9",
-    "typescript": "^5.2.2",
-    "vite": "^4.4.9",
-    "vite-plugin-dts": "^3.5.3"
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.4",
+    "vite": "^5.3.5",
+    "vite-plugin-dts": "^4.0.2",
+    "vitest": "^2.0.4"
   }
 }
