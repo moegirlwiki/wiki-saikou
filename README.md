@@ -1,6 +1,8 @@
 <div align="center">
 
 # Wiki Saikou
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fmoegirlwiki%2Fwiki-saikou.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Fmoegirlwiki%2Fwiki-saikou?ref=badge_shield)
+
 
 SUPER COOL api package for MediaWiki
 
@@ -143,3 +145,7 @@ Modifying these properties on the instance will automatically recreate the Axios
 > MIT License
 >
 > Copyright (c) 2022 萌娘百科 User:机智的小鱼君 (A.K.A. Dragon-Fish)
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fmoegirlwiki%2Fwiki-saikou.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fmoegirlwiki%2Fwiki-saikou?ref=badge_large)
