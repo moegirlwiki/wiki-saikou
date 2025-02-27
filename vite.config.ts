@@ -24,23 +24,10 @@ export default defineConfig({
     drop: PROD ? ['console'] : [],
   },
   define: {
-    // @FIX Uncaught ReferenceError: process is not defined
-    // @link https://github.com/vitejs/vite/issues/9186
-    'process.env.NODE_ENV': '"production"',
+    'import.meta.env.__VERSION__': `"${version}"`,
   },
   test: {
     testTimeout: 15 * 1000,
   },
-  plugins: [
-    dts(),
-    {
-      name: 'replace-version',
-      apply: 'build',
-      enforce: 'post',
-      transform(code) {
-        code = code.replaceAll('__VERSION__', version)
-        return code
-      },
-    } as Plugin,
-  ],
+  plugins: [dts()],
 })

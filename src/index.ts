@@ -13,6 +13,7 @@ import {
  * @license MIT
  */
 export class MediaWikiApi {
+  readonly version = import.meta.env.__VERSION__
   readonly request: Fexios
   private tokens: Record<string, string>
   readonly cookies: Map<string, string> = new Map()
@@ -99,9 +100,6 @@ export class MediaWikiApi {
     const instance = new Fexios({
       baseURL,
       responseType: 'json',
-      headers: {
-        'api-user-agent': `WikiSaikou/__VERSION__`,
-      },
     })
 
     // Adjust body
