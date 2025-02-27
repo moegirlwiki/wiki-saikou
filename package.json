@@ -9,10 +9,7 @@
   "browser": "./dist/index.umd.cjs",
   "exports": {
     ".": {
-      "types": {
-        "import": "./dist/index.d.ts",
-        "require": "./dist/index.cjs"
-      },
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs",
       "browser": "./dist/index.umd.cjs"
@@ -24,7 +21,7 @@
   ],
   "scripts": {
     "test": "vitest run ./test",
-    "clean": "rimraf dist lib",
+    "clean": "rimraf dist/* lib/*",
     "build": "npm run clean && vite build",
     "prepublish": "npm run build"
   },

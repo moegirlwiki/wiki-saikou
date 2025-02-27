@@ -3,6 +3,7 @@ import { resolve } from 'path'
 import { defineConfig, Plugin } from 'vite'
 import dts from 'vite-plugin-dts'
 import { version } from './package.json'
+import type {} from 'vitest'
 
 const PROD =
   process.env.NODE_ENV === 'production' &&
@@ -32,17 +33,6 @@ export default defineConfig({
   },
   plugins: [
     dts(),
-    {
-      name: 'cts',
-      apply: 'build',
-      enforce: 'post',
-      closeBundle() {
-        copyFile(
-          resolve(import.meta.dirname, 'dist/index.d.ts'),
-          resolve(import.meta.dirname, 'dist/index.d.cts')
-        )
-      },
-    },
     {
       name: 'replace-version',
       apply: 'build',

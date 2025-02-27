@@ -19,6 +19,6 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "*.config.ts"],
+  "include": ["src"],
   "exclude": ["lib", "dist"]
 }
