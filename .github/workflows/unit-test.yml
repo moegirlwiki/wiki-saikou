@@ -30,8 +30,8 @@ jobs:
 
       - name: Run test
         env:
-          MOEGIRL_API_USER_AGENT: ${{ secrets.MOEGIRL_API_USER_AGENT }}
-          MOEGIRL_USERNAME: ${{ secrets.MOEGIRL_USERNAME }}
-          MOEGIRL_PASSWORD: ${{ secrets.MOEGIRL_PASSWORD }}
+          API_USER_AGENT: ${{ secrets.API_USER_AGENT }}
+          MW_USERNAME: ${{ secrets.MW_USERNAME }}
+          MW_PASSWORD: ${{ secrets.MW_PASSWORD }}
         run: |
           pnpm test

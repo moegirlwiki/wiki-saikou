@@ -1,25 +1,24 @@
 import 'dotenv/config'
-import { describe, it } from 'mocha'
-import { expect } from 'chai'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { env } from 'process'
 import { MediaWikiApi } from '../src/index'
 
-const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php', {
+const api = new MediaWikiApi('https://wiki.epb.wiki/api.php', {
   headers: {
-    'api-user-agent': env.MOEGIRL_API_USER_AGENT || '',
+    'api-user-agent': env.API_USER_AGENT || '',
   },
 })
 
-const username = env.MOEGIRL_USERNAME || ''
-const password = env.MOEGIRL_PASSWORD || ''
+const username = env.MW_USERNAME || ''
+const password = env.MW_PASSWORD || ''
 
 const now = new Date()
 const editTitle = `User:${username}/sandbox/wiki-saikou`
 let editPageid = 0
 let editNewrevid = 0
 
-describe('Actions', () => {
-  it('Login', async () => {
+describe('Actions', { sequential: true }, () => {
+  beforeAll(async () => {
     const login = await api.login(username, password)
     expect(login.result).to.equal('Success')
   })

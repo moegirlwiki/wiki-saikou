@@ -1,7 +1,8 @@
 import { copyFile } from 'fs/promises'
 import { resolve } from 'path'
-import { defineConfig } from 'vite'
+import { defineConfig, Plugin } from 'vite'
 import dts from 'vite-plugin-dts'
+import { version } from './package.json'
 
 const PROD =
   process.env.NODE_ENV === 'production' &&
@@ -26,10 +27,15 @@ export default defineConfig({
     // @link https://github.com/vitejs/vite/issues/9186
     'process.env.NODE_ENV': '"production"',
   },
+  test: {
+    testTimeout: 15 * 1000,
+  },
   plugins: [
     dts(),
     {
       name: 'cts',
+      apply: 'build',
+      enforce: 'post',
       closeBundle() {
         copyFile(
           resolve(import.meta.dirname, 'dist/index.d.ts'),
@@ -37,5 +43,14 @@ export default defineConfig({
         )
       },
     },
+    {
+      name: 'replace-version',
+      apply: 'build',
+      enforce: 'post',
+      transform(code) {
+        code = code.replaceAll('__VERSION__', version)
+        return code
+      },
+    } as Plugin,
   ],
 })

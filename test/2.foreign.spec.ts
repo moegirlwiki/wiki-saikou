@@ -1,13 +1,12 @@
 import 'dotenv/config'
-import { describe, it } from 'mocha'
-import { expect } from 'chai'
+import { describe, expect, it } from 'vitest'
 import { env } from 'process'
 import { MediaWikiForeignApi } from '../src/index'
-;(globalThis as any).location = new URL('https://zh.moegirl.org.cn/Mainpage')
+;(globalThis as any).location = new URL('https://wiki.epb.wiki/Mainpage')
 
-const api = new MediaWikiForeignApi('https://commons.moegirl.org.cn/api.php', {
+const api = new MediaWikiForeignApi('https://common.epb.wiki/api.php', {
   headers: {
-    'api-user-agent': env.MOEGIRL_API_USER_AGENT || '',
+    'api-user-agent': env.API_USER_AGENT || '',
     origin: location.origin,
   },
 })
@@ -26,7 +25,7 @@ describe('MediaWikiForeignApi', () => {
     expect(response.headers.get('access-control-allow-origin')).to.equal(
       location.origin
     )
-    expect(data.query.general.sitename).to.equal('萌娘共享')
+    expect(data.query.general.sitename).to.equal('Project-EPB Commons')
   })
 
   it('[GET] array as param', async () => {

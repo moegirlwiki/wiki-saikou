@@ -1,12 +1,3 @@
-/**
- * MediaWiki Api for Axios
- * Provides the API call methods similar to `mw.Api` at non-mw environments
- *
- * @author Dragon-Fish <dragon-fish@qq.com>
- * @license MIT
- */
-
-import { Ref, ref, computed, ComputedRef } from '@vue/reactivity'
 import {
   Fexios,
   FexiosConfigs,
@@ -14,15 +5,33 @@ import {
   FexiosFinalContext,
 } from 'fexios'
 
+/**
+ * MediaWiki Api for Axios
+ * Provides the API call methods similar to `mw.Api` at non-mw environments
+ *
+ * @author Dragon-Fish <dragon-fish@qq.com>
+ * @license MIT
+ */
 export class MediaWikiApi {
-  baseURL: Ref<string>
-  private requestHandlerRef: ComputedRef<Fexios>
-  private defaultOptionsRef: Ref<Partial<FexiosConfigs>>
-  private defaultParamsRef: Ref<MwApiParams>
+  readonly request: Fexios
   private tokens: Record<string, string>
-  cookies: Record<string, string> = {}
+  readonly cookies: Map<string, string> = new Map()
 
-  constructor(baseURL?: string, options?: Partial<FexiosConfigs>) {
+  readonly defaultParams: MwApiParams
+  readonly defaultOptions: Partial<FexiosConfigs>
+
+  static INIT_DEFAULT_PARAMS: MwApiParams = {
+    action: 'query',
+    errorformat: 'plaintext',
+    format: 'json',
+    formatversion: 2,
+  }
+
+  constructor(
+    readonly baseURL?: string,
+    defaultOptions?: Partial<FexiosConfigs>,
+    defaultParams?: MwApiParams
+  ) {
     // For MediaWiki browser environment
     if (!baseURL && typeof window === 'object' && (window as any).mediaWiki) {
       const { wgServer, wgScriptPath } =
@@ -36,49 +45,43 @@ export class MediaWikiApi {
       throw new Error('baseURL is undefined')
     }
     // Init
-    this.baseURL = ref(baseURL)
+    this.baseURL = baseURL
     this.tokens = {}
-    this.defaultParamsRef = ref({})
-    this.defaultOptionsRef = ref({} as any)
-
-    // Set default values
     this.defaultParams = {
-      action: 'query',
-      errorformat: 'plaintext',
-      format: 'json',
-      formatversion: 2,
+      ...MediaWikiApi.INIT_DEFAULT_PARAMS,
+      ...defaultParams,
     }
-    this.defaultOptions = options || {}
+    this.defaultOptions = defaultOptions || {}
 
-    this.requestHandlerRef = computed(() => {
-      const instance = MediaWikiApi.createRequestHandler(this.baseURL.value, {
-        ...this.defaultOptions,
-        query: this.defaultParams as any,
+    const instance = MediaWikiApi.createRequestHandler(this.baseURL)
+    this.request = instance
+
+    // Handle cookies for Node.js
+    if (!('document' in globalThis)) {
+      instance.interceptors.request.use((ctx) => {
+        ctx.headers = (ctx.headers as Record<string, string>) || {}
+        ctx.headers['cookie'] = Array.from(this.cookies.entries())
+          .map(([name, value]) => `${name}=${value}`)
+          .join('; ')
+        return ctx
       })
-      // Handle cookies for Node.js
-      if (!('document' in globalThis)) {
-        instance.interceptors.request.use((ctx) => {
-          ctx.headers = (ctx.headers as Record<string, string>) || {}
-          ctx.headers['cookie'] = Object.keys(this.cookies)
-            .map((name) => `${name}=${this.cookies[name]}`)
-            .join(';')
-          return ctx
+      instance.interceptors.response.use((ctx) => {
+        const cookieHeaders = (ctx.rawResponse!.headers as Headers).get(
+          'set-cookie'
+        )
+        const rawCookies = cookieHeaders?.split(',').map((i) => i.trim())
+        rawCookies?.forEach((i) => {
+          const [name, ...value] = i.split(';')[0].split('=')
+          this.cookies.set(name, value.join('='))
         })
-        instance.interceptors.response.use((ctx) => {
-          const cookieHeaders = (ctx.rawResponse!.headers as Headers).get(
-            'set-cookie'
-          )
-          const rawCookies = cookieHeaders?.split(',').map((i) => i.trim())
-          rawCookies?.forEach((i) => {
-            const [name, ...value] = i.split(';')[0].split('=')
-            this.cookies[name] = value.join('=')
-          })
-          return ctx
-        })
-      }
+        return ctx
+      })
+    }
+  }
 
-      return instance
-    })
+  setBaseURL(baseURL: string) {
+    this.request.baseConfigs.baseURL = baseURL
+    return this
   }
 
   static normalizeParamValue(item: MwApiParams[keyof MwApiParams]) {
@@ -92,12 +95,14 @@ export class MediaWikiApi {
       return item
     }
   }
-  static createRequestHandler(
-    baseURL: string,
-    options: Partial<FexiosRequestOptions> = {}
-  ) {
-    const instance = new Fexios(options)
-    instance.baseConfigs.baseURL = baseURL
+  static createRequestHandler(baseURL: string) {
+    const instance = new Fexios({
+      baseURL,
+      responseType: 'json',
+      headers: {
+        'api-user-agent': `WikiSaikou/__VERSION__`,
+      },
+    })
 
     // Adjust body
     instance.on('beforeInit', (ctx) => {
@@ -148,7 +153,7 @@ export class MediaWikiApi {
           )
         body.has('origin') &&
           searchParams.set('origin', '' + body.get('origin'))
-        ctx.query = Object.fromEntries(searchParams)
+        ctx.query = Object.fromEntries(searchParams.entries())
 
         // DONT REMOVE THIS
         // TODO: Remove duplicate parameters. There should be a better solution.
@@ -175,6 +180,23 @@ export class MediaWikiApi {
     // Adjust origin param
     instance.on('beforeRequest', (ctx) => {
       const url = new URL(ctx.url!)
+      const searchParams = url.searchParams
+      // Adjust origin param
+      if (globalThis.location) {
+        if (
+          !searchParams.has('origin') &&
+          location.origin !== new URL(baseURL).origin
+        ) {
+          searchParams.set('origin', location.origin)
+          instance.baseConfigs.credentials = 'include'
+          instance.baseConfigs.mode = 'cors'
+        } else if (location.origin === new URL(baseURL).origin) {
+          searchParams.delete('origin')
+          instance.baseConfigs.credentials = undefined
+          instance.baseConfigs.mode = undefined
+        }
+      }
+
       if (url.searchParams.has('origin')) {
         const origin = encodeURIComponent(
           url.searchParams.get('origin') || ''
@@ -189,30 +211,15 @@ export class MediaWikiApi {
     return instance
   }
 
-  /** Syntactic Sugar */
-  // request handler
-  get request() {
-    return this.requestHandlerRef.value
-  }
-  // userOptions
-  get defaultOptions() {
-    return this.defaultOptionsRef.value
-  }
-  set defaultOptions(options: Partial<FexiosConfigs>) {
-    this.defaultOptionsRef.value = options
-  }
-  // defaultParams
-  get defaultParams() {
-    return this.defaultParamsRef.value
-  }
-  set defaultParams(params: MwApiParams) {
-    this.defaultParamsRef.value = params
-  }
-
   /** Base methods encapsulation */
   get<T = any>(query: MwApiParams, options?: FexiosRequestOptions) {
     return this.request.get<T>('', {
-      query: query as any,
+      ...this.defaultOptions,
+      query: {
+        ...this.defaultParams,
+        ...this.defaultOptions.query,
+        ...(query as any),
+      },
       ...options,
     })
   }
@@ -220,7 +227,11 @@ export class MediaWikiApi {
     data: MwApiParams | URLSearchParams | FormData,
     options?: FexiosRequestOptions
   ) {
-    return this.request.post<T>('', data, options)
+    return this.request.post<T>('', data, {
+      ...this.defaultOptions,
+      query: { ...(this.defaultParams as any), ...this.defaultOptions.query },
+      ...options,
+    })
   }
 
   async login(
@@ -442,12 +453,23 @@ export class MediaWikiApi {
 }
 
 export class MediaWikiForeignApi extends MediaWikiApi {
-  constructor(baseURL?: string, options?: Partial<FexiosConfigs>) {
-    super(baseURL, {
-      credentials: 'include',
-      ...options,
-    })
-    this.defaultParams.origin = location.origin
+  constructor(
+    baseURL?: string,
+    defaultOptions?: Partial<FexiosConfigs>,
+    defaultParams?: MwApiParams
+  ) {
+    super(
+      baseURL,
+      {
+        credentials: 'include',
+        mode: 'cors',
+        ...defaultOptions,
+      },
+      {
+        origin: location.origin,
+        ...defaultParams,
+      }
+    )
   }
 }
 

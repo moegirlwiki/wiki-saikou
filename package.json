@@ -23,7 +23,7 @@
     "lib"
   ],
   "scripts": {
-    "test": "mocha test/**/*.spec.ts",
+    "test": "vitest run ./test",
     "clean": "rimraf dist lib",
     "build": "npm run clean && vite build",
     "prepublish": "npm run build"
@@ -55,27 +55,18 @@
   },
   "homepage": "https://github.com/moegirlwiki/wiki-saikou#readme",
   "dependencies": {
-    "@vue/reactivity": "^3.5.8",
-    "fexios": "^1.7.1",
-    "tslib": "^2.7.0"
+    "fexios": "^2.0.0",
+    "tslib": "^2.8.1"
   },
   "devDependencies": {
-    "@types/chai": "^4.3.19",
-    "@types/chai-as-promised": "^8.0.0",
-    "@types/mocha": "^10.0.8",
-    "@types/node": "^20.16.6",
-    "chai": "^5.1.1",
-    "chai-as-promised": "^8.0.0",
-    "dotenv": "^16.4.5",
-    "esbuild-register": "^3.6.0",
-    "mocha": "^10.7.3",
-    "pkgroll": "^2.5.0",
+    "@types/node": "^22.10.7",
+    "dotenv": "^16.4.7",
+    "pkgroll": "^2.6.1",
     "rimraf": "^6.0.1",
-    "ts-mocha": "^10.0.0",
-    "tsx": "^4.19.1",
-    "typescript": "^5.6.2",
-    "vite": "^5.4.7",
-    "vite-plugin-dts": "^4.2.2",
-    "vitest": "^2.1.1"
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.11",
+    "vite-plugin-dts": "^4.5.0",
+    "vitest": "^3.0.3"
   }
 }
