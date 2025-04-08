@@ -1,6 +1,6 @@
 {
   "name": "wiki-saikou",
-  "version": "4.1.0",
+  "version": "4.2.0",
   "description": "The library provides the out of box accessing to MediaWiki API in both browsers & Node.js, and the syntax is very similar to vanilla `new mw.Api()`. TypeScript definition included~",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -52,7 +52,7 @@
   },
   "homepage": "https://github.com/moegirlwiki/wiki-saikou#readme",
   "dependencies": {
-    "fexios": "^2.0.0",
+    "fexios": "^2.1.0",
     "tslib": "^2.8.1"
   },
   "devDependencies": {
