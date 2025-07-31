@@ -52,7 +52,10 @@ export class MediaWikiApi {
       ...MediaWikiApi.INIT_DEFAULT_PARAMS,
       ...defaultParams,
     }
-    this.defaultOptions = defaultOptions || {}
+    this.defaultOptions = {
+      responseType: 'json',
+      ...defaultOptions,
+    }
 
     const instance = MediaWikiApi.createRequestHandler(this.baseURL)
     this.request = instance
