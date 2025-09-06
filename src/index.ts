@@ -64,9 +64,15 @@ export class MediaWikiApi {
     if (!('document' in globalThis)) {
       instance.interceptors.request.use((ctx) => {
         ctx.headers = (ctx.headers as Record<string, string>) || {}
-        ctx.headers['cookie'] = Array.from(this.cookies.entries())
+        const validCookies = Array
+          .from(this.cookies.entries())
+          .filter(([name]) => name
+            && !name.match(/[0-9]{2} [A-Za-z]{3} [0-9]{4}/) // Exclude cookies looked like expiration date
+            && name !== '')
           .map(([name, value]) => `${name}=${value}`)
-          .join('; ')
+        if (validCookies.length > 0) {
+          ctx.headers['cookie'] = validCookies.join('; ')
+        }
         return ctx
       })
       instance.interceptors.response.use((ctx) => {
