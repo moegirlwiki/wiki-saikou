@@ -1,7 +1,7 @@
 import 'dotenv/config'
 import { describe, expect, it } from 'vitest'
 import { env } from 'process'
-import { MediaWikiForeignApi } from '../src/index'
+import { MediaWikiForeignApi } from 'wiki-saikou/browser'
 ;(globalThis as any).location = new URL('https://wiki.epb.wiki/Mainpage')
 
 const api = new MediaWikiForeignApi('https://common.epb.wiki/api.php', {

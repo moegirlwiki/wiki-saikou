@@ -6,17 +6,16 @@ import {
 } from 'fexios'
 
 /**
- * MediaWiki Api for Axios
+ * MediaWiki Api
  * Provides the API call methods similar to `mw.Api` at non-mw environments
  *
  * @author Dragon-Fish <dragon-fish@qq.com>
  * @license MIT
  */
-export class MediaWikiApi {
+export class MwApiBase {
   readonly version = import.meta.env.__VERSION__
   readonly request: Fexios
   private tokens: Record<string, string>
-  readonly cookies: Map<string, string> = new Map()
 
   readonly defaultParams: MwApiParams
   readonly defaultOptions: Partial<FexiosConfigs>
@@ -49,7 +48,7 @@ export class MediaWikiApi {
     this.baseURL = baseURL
     this.tokens = {}
     this.defaultParams = {
-      ...MediaWikiApi.INIT_DEFAULT_PARAMS,
+      ...MwApiBase.INIT_DEFAULT_PARAMS,
       ...defaultParams,
     }
     this.defaultOptions = {
@@ -57,30 +56,7 @@ export class MediaWikiApi {
       ...defaultOptions,
     }
 
-    const instance = MediaWikiApi.createRequestHandler(this.baseURL)
-    this.request = instance
-
-    // Handle cookies for Node.js
-    if (!('document' in globalThis)) {
-      instance.interceptors.request.use((ctx) => {
-        ctx.headers = (ctx.headers as Record<string, string>) || {}
-        ctx.headers['cookie'] = Array.from(this.cookies.entries())
-          .map(([name, value]) => `${name}=${value}`)
-          .join('; ')
-        return ctx
-      })
-      instance.interceptors.response.use((ctx) => {
-        const cookieHeaders = (ctx.rawResponse!.headers as Headers).get(
-          'set-cookie'
-        )
-        const rawCookies = cookieHeaders?.split(',').map((i) => i.trim())
-        rawCookies?.forEach((i) => {
-          const [name, ...value] = i.split(';')[0].split('=')
-          this.cookies.set(name, value.join('='))
-        })
-        return ctx
-      })
-    }
+    this.request = MwApiBase.createRequestHandler(this.baseURL)
   }
 
   setBaseURL(baseURL: string) {
@@ -119,7 +95,7 @@ export class MediaWikiApi {
       ) {
         const body: any = ctx.body
         Object.keys(body).forEach((key) => {
-          const data = MediaWikiApi.normalizeParamValue(body[key])
+          const data = MwApiBase.normalizeParamValue(body[key])
           if (typeof data === 'undefined' || data === null) {
             delete body[key]
           } else if (data !== body[key]) {
@@ -136,7 +112,7 @@ export class MediaWikiApi {
         const body = ctx.body
         // Adjust params
         body.forEach((value, key) => {
-          const data = MediaWikiApi.normalizeParamValue(value)
+          const data = MwApiBase.normalizeParamValue(value)
           if (typeof data === 'undefined' || data === null) {
             body.delete(key)
           } else if (data !== value) {
@@ -168,7 +144,7 @@ export class MediaWikiApi {
     instance.on('beforeInit', (ctx) => {
       ctx.query = ctx.query as Record<string, any>
       for (const key in ctx.query) {
-        const data = MediaWikiApi.normalizeParamValue(ctx.query[key])
+        const data = MwApiBase.normalizeParamValue(ctx.query[key])
         if (typeof data === 'undefined' || data === null) {
           delete ctx.query[key]
         } else if (data !== ctx.query[key]) {
@@ -381,14 +357,14 @@ export class MediaWikiApi {
     })
       .then((ctx) => {
         const data = ctx.data
-        if (MediaWikiApi.isBadTokenError(data)) {
+        if (MwApiBase.isBadTokenError(data)) {
           return doRetry()
         }
         return ctx
       })
       .catch((err) => {
         const data = err.data
-        if (MediaWikiApi.isBadTokenError(data) || err?.ok === false) {
+        if (MwApiBase.isBadTokenError(data) || err?.ok === false) {
           return doRetry()
         } else if (typeof data === 'object' && data !== null) {
           return Promise.reject(data)
@@ -452,31 +428,6 @@ export class MediaWikiApi {
     return data.parse.text
   }
 }
-
-export class MediaWikiForeignApi extends MediaWikiApi {
-  constructor(
-    baseURL?: string,
-    defaultOptions?: Partial<FexiosConfigs>,
-    defaultParams?: MwApiParams
-  ) {
-    super(
-      baseURL,
-      {
-        credentials: 'include',
-        mode: 'cors',
-        ...defaultOptions,
-      },
-      {
-        origin: location.origin,
-        ...defaultParams,
-      }
-    )
-  }
-}
-
-// Aliases
-export default MediaWikiApi
-export { MediaWikiApi as MwApi, MediaWikiForeignApi as ForeignApi }
 
 // Errors
 export enum WikiSaikouErrorCode {

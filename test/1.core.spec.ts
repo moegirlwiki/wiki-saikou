@@ -1,7 +1,7 @@
 import 'dotenv/config'
 import { describe, expect, it } from 'vitest'
 import { env } from 'process'
-import { MediaWikiApi } from '../src/index'
+import { MediaWikiApi } from 'wiki-saikou'
 
 const api = new MediaWikiApi('https://wiki.epb.wiki/api.php', {
   headers: {
