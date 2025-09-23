@@ -4,15 +4,21 @@ import {
   FexiosRequestOptions,
   FexiosFinalContext,
 } from 'fexios'
+import {
+  withTokenRetry,
+  isBadTokenError,
+  TokenRetryOptions,
+} from './utils/with-retry.js'
+
+export type * from 'fexios'
 
 /**
- * MediaWiki Api
- * Provides the API call methods similar to `mw.Api` at non-mw environments
+ * WikiSaikou core
  *
  * @author Dragon-Fish <dragon-fish@qq.com>
  * @license MIT
  */
-export class MwApiBase {
+export class WikiSaikou {
   readonly version = import.meta.env.__VERSION__
   readonly request: Fexios
   private tokens: Record<string, string>
@@ -28,19 +34,10 @@ export class MwApiBase {
   }
 
   constructor(
-    readonly baseURL?: string,
+    readonly baseURL: string,
     defaultOptions?: Partial<FexiosConfigs>,
     defaultParams?: MwApiParams
   ) {
-    // For MediaWiki browser environment
-    if (!baseURL && typeof window === 'object' && (window as any).mediaWiki) {
-      const { wgServer, wgScriptPath } =
-        (window as any).mediaWiki?.config?.get(['wgServer', 'wgScriptPath']) ||
-        {}
-      if (typeof wgServer === 'string' && typeof wgScriptPath === 'string') {
-        baseURL = `${wgServer}${wgScriptPath}/api.php`
-      }
-    }
     if (typeof baseURL !== 'string') {
       throw new Error('baseURL is undefined')
     }
@@ -48,7 +45,7 @@ export class MwApiBase {
     this.baseURL = baseURL
     this.tokens = {}
     this.defaultParams = {
-      ...MwApiBase.INIT_DEFAULT_PARAMS,
+      ...WikiSaikou.INIT_DEFAULT_PARAMS,
       ...defaultParams,
     }
     this.defaultOptions = {
@@ -56,7 +53,10 @@ export class MwApiBase {
       ...defaultOptions,
     }
 
-    this.request = MwApiBase.createRequestHandler(this.baseURL)
+    this.request = WikiSaikou.createRequestHandler(
+      this.baseURL,
+      this.defaultOptions
+    )
   }
 
   setBaseURL(baseURL: string) {
@@ -75,10 +75,13 @@ export class MwApiBase {
       return item
     }
   }
-  static createRequestHandler(baseURL: string) {
+  static createRequestHandler(
+    baseURL: string,
+    options?: Partial<FexiosConfigs>
+  ) {
     const instance = new Fexios({
       baseURL,
-      responseType: 'json',
+      ...options,
     })
 
     // Adjust body
@@ -95,7 +98,7 @@ export class MwApiBase {
       ) {
         const body: any = ctx.body
         Object.keys(body).forEach((key) => {
-          const data = MwApiBase.normalizeParamValue(body[key])
+          const data = WikiSaikou.normalizeParamValue(body[key])
           if (typeof data === 'undefined' || data === null) {
             delete body[key]
           } else if (data !== body[key]) {
@@ -112,7 +115,7 @@ export class MwApiBase {
         const body = ctx.body
         // Adjust params
         body.forEach((value, key) => {
-          const data = MwApiBase.normalizeParamValue(value)
+          const data = WikiSaikou.normalizeParamValue(value)
           if (typeof data === 'undefined' || data === null) {
             body.delete(key)
           } else if (data !== value) {
@@ -144,7 +147,7 @@ export class MwApiBase {
     instance.on('beforeInit', (ctx) => {
       ctx.query = ctx.query as Record<string, any>
       for (const key in ctx.query) {
-        const data = MwApiBase.normalizeParamValue(ctx.query[key])
+        const data = WikiSaikou.normalizeParamValue(ctx.query[key])
         if (typeof data === 'undefined' || data === null) {
           delete ctx.query[key]
         } else if (data !== ctx.query[key]) {
@@ -211,102 +214,42 @@ export class MwApiBase {
     })
   }
 
-  async login(
-    lgname: string,
-    lgpassword: string,
-    params?: MwApiParams,
-    postOptions?: { retry?: number; noCache?: boolean }
-  ): Promise<{
-    result: 'Success' | 'NeedToken' | 'WrongToken' | 'Failed'
-    token?: string
-    reason?: {
-      code: string
-      text: string
+  async getUserInfo(identity?: string | number): Promise<MwUserInfo | null> {
+    if (!identity) {
+      return this.getSelfUserInfo()
     }
-    lguserid: number
-    lgusername: string
-  }> {
-    this.defaultOptions.credentials = 'include'
-
-    postOptions = postOptions || {}
-    postOptions.retry ??= 3
-
-    if (postOptions.retry < 1) {
-      throw new WikiSaikouError(
-        WikiSaikouErrorCode.LOGIN_RETRY_LIMIT_EXCEEDED,
-        'The limit of the number of times to automatically re-login has been exceeded'
-      )
-    }
-
-    // FIXME: This is ugly
-    let data: any
-    try {
-      const res = await this.postWithToken(
-        'login',
-        {
-          action: 'login',
-          lgname,
-          lgpassword,
-          ...params,
-        },
-        { tokenName: 'lgtoken', ...postOptions }
-      )
-      if (res?.data?.login) {
-        data = res.data
-      } else {
-        throw res
-      }
-    } catch (e: any) {
-      if (e instanceof WikiSaikouError) {
-        throw e
-      } else if (e?.ok === false) {
-        return this.login(lgname, lgpassword, params, {
-          ...postOptions,
-          noCache: true,
-          retry: postOptions.retry - 1,
-        })
-      } else {
-        throw new WikiSaikouError(
-          WikiSaikouErrorCode.HTTP_ERROR,
-          "The server returns an error, but it doesn't seem to be caused by MediaWiki",
-          e
-        )
-      }
-    }
-
-    if (data?.login?.result !== 'Success') {
-      throw new WikiSaikouError(
-        WikiSaikouErrorCode.LOGIN_FAILED,
-        data?.login?.reason?.text ||
-          data?.login?.result ||
-          'Login failed with unknown reason',
-        data
-      )
-    }
-    return data.login
-  }
-  async getUserInfo() {
     const { data } = await this.get<{
       query: {
-        userinfo: {
-          id: number
-          name: string
-          groups: string[]
-          rights: string[]
-          blockid?: number
-          blockedby?: string
-          blockedbyid?: number
-          blockreason?: string
-          blockexpiry?: string
-          blockedtimestamp?: string
-        }
+        users: (Omit<MwUserInfo, 'id'> & { userid: number })[]
+      }
+    }>({
+      action: 'query',
+      list: 'users',
+      usprop: ['groups', 'rights', 'blockinfo'],
+      ususers: typeof identity === 'string' ? identity : undefined,
+      ususerids: typeof identity === 'number' ? identity : undefined,
+    })
+    const user = data?.query?.users?.[0]
+    if (!user) {
+      return null
+    }
+    return {
+      ...user,
+      id: user.userid,
+    }
+  }
+
+  async getSelfUserInfo() {
+    const { data } = await this.get<{
+      query: {
+        userinfo: MwUserInfo
       }
     }>({
       action: 'query',
       meta: 'userinfo',
       uiprop: ['groups', 'rights', 'blockinfo'],
     })
-    return data?.query?.userinfo
+    return data?.query?.userinfo || null
   }
 
   /** Token Handler */
@@ -331,63 +274,63 @@ export class MwApiBase {
   async postWithToken<T = any>(
     tokenType: MwTokenName,
     body: MwApiParams,
-    options?: { tokenName?: string; retry?: number; noCache?: boolean }
+    options?: {
+      tokenName?: string
+      retry?: number
+      noCache?: boolean
+    } & TokenRetryOptions
   ): Promise<FexiosFinalContext<T>> {
-    const { tokenName = 'token', retry = 3, noCache = false } = options || {}
+    const {
+      tokenName = 'token',
+      retry = 3,
+      noCache = false,
+      ...retryOptions
+    } = options || {}
 
-    if (retry < 1) {
-      throw new WikiSaikouError(
-        WikiSaikouErrorCode.TOKEN_RETRY_LIMIT_EXCEEDED,
-        'The limit of the number of times to automatically re-acquire the token has been exceeded'
-      )
-    }
+    // For compatibility
+    retryOptions.maxRetries ??= retry
 
-    const token = await this.token(tokenType, noCache)
-
-    const doRetry = () =>
-      this.postWithToken(tokenType, body, {
-        tokenName,
-        retry: retry - 1,
-        noCache: true,
-      })
-
-    return this.post<T>({
-      [tokenName]: token,
-      ...body,
+    return withTokenRetry(
+      async () => {
+        const token = await this.token(tokenType, noCache)
+        return this.post<T>({
+          [tokenName]: token,
+          ...body,
+        })
+      },
+      {
+        ...retryOptions,
+        shouldRetry: (err) => {
+          const data = err.data
+          return WikiSaikou.isBadTokenError(data) || err?.ok === false
+        },
+        onTokenError: async (err, retryCount) => {
+          // 清理指定类型的token缓存
+          delete this.tokens[`${tokenType}token`]
+          if (typeof retryOptions.onTokenError === 'function') {
+            await retryOptions.onTokenError(err, retryCount)
+          }
+        },
+      }
+    ).catch((err) => {
+      const data = err.data
+      if (typeof data === 'object' && data !== null) {
+        return Promise.reject(data)
+      } else {
+        throw new WikiSaikouError(
+          WikiSaikouErrorCode.HTTP_ERROR,
+          "The server returns an error, but it doesn't seem to be caused by MediaWiki",
+          err
+        )
+      }
     })
-      .then((ctx) => {
-        const data = ctx.data
-        if (MwApiBase.isBadTokenError(data)) {
-          return doRetry()
-        }
-        return ctx
-      })
-      .catch((err) => {
-        const data = err.data
-        if (MwApiBase.isBadTokenError(data) || err?.ok === false) {
-          return doRetry()
-        } else if (typeof data === 'object' && data !== null) {
-          return Promise.reject(data)
-        } else {
-          throw new WikiSaikouError(
-            WikiSaikouErrorCode.HTTP_ERROR,
-            'The server returns an error, but it doesn’t seem to be caused by MediaWiki',
-            err
-          )
-        }
-      })
   }
   postWithEditToken<T = any>(body: MwApiParams) {
     return this.postWithToken<T>('csrf', body)
   }
 
-  static isBadTokenError(data?: any) {
-    return (
-      data?.error?.code === 'badtoken' ||
-      data?.errors?.some((i: any) => i.code === 'badtoken') ||
-      ['NeedToken', 'WrongToken'].includes(data?.login?.result)
-    )
-  }
+  // For compatibility
+  static isBadTokenError = isBadTokenError
 
   async getMessages(ammessages: string[], amlang = 'zh', options: MwApiParams) {
     const { data } = await this.get({
@@ -435,6 +378,7 @@ export enum WikiSaikouErrorCode {
   LOGIN_FAILED = 'LOGIN_FAILED',
   LOGIN_RETRY_LIMIT_EXCEEDED = 'LOGIN_RETRY_LIMIT_EXCEEDED',
   TOKEN_RETRY_LIMIT_EXCEEDED = 'TOKEN_RETRY_LIMIT_EXCEEDED',
+  RETRY_LIMIT_EXCEEDED = 'RETRY_LIMIT_EXCEEDED',
 }
 export class WikiSaikouError extends Error {
   readonly name = 'WikiSaikouError'
@@ -460,3 +404,16 @@ export type MwTokenName =
   | 'rollback'
   | 'userrights'
   | 'watch'
+
+export interface MwUserInfo {
+  id: number
+  name: string
+  groups: string[]
+  rights: string[]
+  blockid?: number
+  blockedby?: string
+  blockedbyid?: number
+  blockreason?: string
+  blockexpiry?: string
+  blockedtimestamp?: string
+}

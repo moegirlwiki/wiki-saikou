@@ -34,26 +34,48 @@ yarn add wiki-saikou
 npm install wiki-saikou
 ```
 
-Then, import it to your project:
+**通用导入方法 Common import methods**
 
 ```ts
+// Automatically detect the environment and import the appropriate version
 import { MediaWikiApi } from 'wiki-saikou'
+// Or specify the environment
+import { MediaWikiApi } from 'wiki-saikou/browser' // for frontend projects
+import { MediaWikiApi } from 'wiki-saikou/node' // for Node.js projects
+
 const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
 // ...
 ```
 
 **在浏览器中直接使用 Use directly in the browser**
 
-```js
-import('https://unpkg.com/wiki-saikou?module').then(({ MediaWikiApi }) => {
+```html
+<!-- ESM -->
+<script type="module">
+  import { MediaWikiApi } from 'https://esm.run/wiki-saikou/browser'
   const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
-  // ...
-})
+</script>
+
+<!-- UMD -->
+<script src="https://cdn.jsdelivr.net/npm/wiki-saikou/dist/browser.umd.js"></script>
+<script>
+  const { MediaWikiApi } = window.WikiSaikou
+  const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
+</script>
 ```
 
-Then use it just like the `new mw.Api()`
+**在 Deno, Bun, etc. 中使用**
+
+You should use the node version, which includes the cookie jar plugin.
+
+```js
+import { MediaWikiApi } from 'https://esm.run/wiki-saikou/node'
+const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
+```
 
 ## 使用方法 Usage
+
+You can use WikiSaikou just like the `new mw.Api()`
 
 You can find some sample code snippets [here](test/).
 
@@ -74,6 +96,8 @@ Below is the documentation of MediaWikiApi.
 #### `login(username: string, password: string): Promise<{ result: 'Success' | 'Failed'; lguserid: number; lgusername: string }>`
 
 Login your account.
+
+In the browser environment, use `clientLogin` instead.
 
 #### `get<T = any>(params: MwApiParams, options?: FexiosRequestOptions): Promise<FexiosFinalContext<T>>`
 

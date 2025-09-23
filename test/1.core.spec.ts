@@ -31,8 +31,9 @@ describe('MediaWikiApi', () => {
 
   it('[GET] userinfo', async () => {
     const info = await api.getUserInfo()
-    expect(info.id).to.be.a('number')
-    expect(info.name).to.be.an('string')
+    expect(info).to.not.be.null
+    expect(info!.id).to.be.a('number')
+    expect(info!.name).to.be.an('string')
   })
 
   it('[GET] array as param', async () => {
