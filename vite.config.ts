@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import dts from 'unplugin-dts/vite'
 import { version } from './package.json'
 import { UserConfig } from 'vite'
+import { resolve } from 'path'
 
 const PROD =
   process.env.NODE_ENV === 'production' &&
@@ -24,7 +25,12 @@ export default defineConfig(({ command, mode }) => {
     test: {
       testTimeout: 15 * 1000,
     },
-    plugins: [dts({})],
+    plugins: [
+      dts({
+        tsconfigPath: resolve(import.meta.dirname, 'tsconfig.app.json'),
+        entryRoot: 'src',
+      }),
+    ],
   }
 
   switch (BUILD_FORMAT) {
