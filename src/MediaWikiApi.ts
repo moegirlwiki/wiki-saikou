@@ -3,6 +3,7 @@ import {
   FexiosConfigs,
   FexiosRequestOptions,
   FexiosFinalContext,
+  checkIsPlainObject,
 } from 'fexios'
 
 /**
@@ -64,10 +65,10 @@ export class MwApiBase {
     return this
   }
 
-  static normalizeParamValue(item: MwApiParams[keyof MwApiParams]) {
+  static normalizeParamValue(item: any): string | Blob | undefined {
     if (Array.isArray(item)) {
       return item.join('|')
-    } else if (typeof item === 'boolean') {
+    } else if (typeof item === 'boolean' || item === null) {
       return item ? '1' : undefined
     } else if (typeof item === 'number') {
       return '' + item
@@ -75,6 +76,53 @@ export class MwApiBase {
       return item
     }
   }
+
+  static normalizeBody(body: any): URLSearchParams | FormData | undefined {
+    const isFormLike = (body: any): body is URLSearchParams | FormData =>
+      body && (body instanceof URLSearchParams || body instanceof FormData)
+
+    if (body === void 0 || body === null) {
+      return void 0
+    }
+
+    if (isFormLike(body)) {
+      body.forEach((value, key) => {
+        const data = MwApiBase.normalizeParamValue(value)
+        if (data === void 0 || data === null) {
+          body.delete(key)
+        } else if (data !== value) {
+          body.set(key, data as any)
+        }
+      })
+      return body
+    }
+
+    if (checkIsPlainObject(body)) {
+      body = Object.fromEntries(
+        Object.entries(body)
+          .map(([key, value]) => [key, MwApiBase.normalizeParamValue(value)])
+          .filter(([key, value]) => value !== void 0 && value !== null)
+      )
+
+      const hasBlob = Object.values(body).some(
+        (value) => value instanceof File || value instanceof Blob
+      )
+
+      if (hasBlob) {
+        body = new FormData()
+        Object.entries(body).forEach(([key, value]) => {
+          body.append(key, value)
+        })
+      } else {
+        body = new URLSearchParams(body as any)
+      }
+
+      return body
+    }
+
+    return void 0
+  }
+
   static createRequestHandler(baseURL: string) {
     const instance = new Fexios({
       baseURL,
@@ -87,82 +135,37 @@ export class MwApiBase {
         return ctx
       }
 
-      // If body has Blob, convert it to FormData
-      if (
-        typeof ctx.body === 'object' &&
-        ctx.body !== null &&
-        !(ctx.body instanceof URLSearchParams) &&
-        !(ctx.body instanceof FormData)
-      ) {
-        const hasFile = Object.values(ctx.body).some(
-          (value) => value instanceof File || value instanceof Blob
-        )
-        if (hasFile) {
-          const body = new FormData()
-          Object.entries(ctx.body).forEach(([key, value]) => {
-            body.append(key, value)
-          })
-          ctx.body = body
-        }
+      if (ctx.body === void 0 || ctx.body === null) {
+        ctx.body = void 0
+        return ctx
       }
 
-      // If body is not FormData, convert it to URLSearchParams
-      if (
-        typeof ctx.body === 'object' &&
-        ctx.body !== null &&
-        !(ctx.body instanceof URLSearchParams) &&
-        !(ctx.body instanceof FormData)
-      ) {
-        ctx.body = new URLSearchParams(ctx.body as any)
-      }
+      const body = (ctx.body = MwApiBase.normalizeBody(ctx.body)!)
 
-      // Adjust params
-      if (
-        (globalThis.FormData && ctx.body instanceof FormData) ||
-        ctx.body instanceof URLSearchParams
-      ) {
-        const body = ctx.body
-        // Adjust params
-        body.forEach((value, key) => {
-          const data = MwApiBase.normalizeParamValue(value)
-          if (typeof data === 'undefined' || data === null) {
-            body.delete(key)
-          } else if (data !== value) {
-            body.set(key, data as any)
-          }
-        })
-        // Adjust query
-        const searchParams = new URLSearchParams(ctx.query as any)
-        !searchParams.has('format') &&
-          searchParams.set('format', '' + (body.get('format') || 'json'))
-        !searchParams.has('formatversion') &&
-          searchParams.set(
-            'formatversion',
-            '' + (body.get('formatversion') || '2')
-          )
-        body.has('origin') &&
-          searchParams.set('origin', '' + body.get('origin'))
-        ctx.query = Object.fromEntries(searchParams.entries())
-
-        // DONT REMOVE THIS
-        // TODO: Remove duplicate parameters. There should be a better solution.
-        body.has('action') && (ctx.query.action = '' + body.get('action'))
+      // remove duplicate params
+      const query = new URLSearchParams(ctx.query as any)
+      if (body.has('format')) {
+        query.delete('format')
       }
+      if (body.has('formatversion')) {
+        query.delete('formatversion')
+      }
+      if (body.has('action')) {
+        query.delete('action')
+      }
+      // `origin` must be in query because of CORS
+      if (body.has('origin')) {
+        query.set('origin', '' + body.get('origin'))
+        body.delete('origin')
+      }
+      ctx.query = Object.fromEntries(query.entries())
 
       return ctx
     })
 
     // Adjust query
     instance.on('beforeInit', (ctx) => {
-      ctx.query = ctx.query as Record<string, any>
-      for (const key in ctx.query) {
-        const data = MwApiBase.normalizeParamValue(ctx.query[key])
-        if (typeof data === 'undefined' || data === null) {
-          delete ctx.query[key]
-        } else if (data !== ctx.query[key]) {
-          ctx.query[key] = '' + data
-        }
-      }
+      ctx.query = MwApiBase.normalizeBody(ctx.query) || {}
       return ctx
     })
 
@@ -453,7 +456,14 @@ export class MwApiBase {
     }
     const error = r?.error
     const errors = r?.errors
-    return [error, ...errors].filter(Boolean) as MwApiResponseError[]
+    const result: MwApiResponseError[] = []
+    if (error) {
+      result.push(error)
+    }
+    if (Array.isArray(errors)) {
+      result.push(...errors)
+    }
+    return result
   }
   extractMediaWikiErrors = MwApiBase.extractMediaWikiErrors
 
