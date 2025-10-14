@@ -2,15 +2,22 @@ import 'dotenv/config'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { env } from 'process'
 import { MediaWikiApi } from 'wiki-saikou'
+import {
+  MOCK_API_ENDPOINT_URL,
+  MOCK_MW_USERNAME,
+  MOCK_MW_PASSWORD,
+  mockFetch,
+} from './mockFetch.ts'
 
-const api = new MediaWikiApi('https://wiki.epb.wiki/api.php', {
+const api = new MediaWikiApi(MOCK_API_ENDPOINT_URL.href, {
   headers: {
     'api-user-agent': env.API_USER_AGENT || '',
   },
+  fetch: mockFetch,
 })
 
-const username = env.MW_USERNAME || ''
-const password = env.MW_PASSWORD || ''
+const username = MOCK_MW_USERNAME
+const password = MOCK_MW_PASSWORD
 
 const now = new Date()
 const editTitle = `User:${username}/sandbox/wiki-saikou`

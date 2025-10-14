@@ -1,15 +1,17 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { MediaWikiApi } from 'wiki-saikou'
 import { CookieJar, type CookieJarItem } from 'wiki-saikou'
+import { MOCK_API_ENDPOINT_URL, mockFetch } from './mockFetch.ts'
 
 describe('Cookie Jar Plugin', () => {
   let api: MediaWikiApi
   let cookieJar: CookieJar
 
   beforeEach(() => {
-    api = new MediaWikiApi('https://wiki.epb.wiki/api.php')
+    api = new MediaWikiApi(MOCK_API_ENDPOINT_URL.href, {
+      fetch: mockFetch,
+    })
     cookieJar = api.cookieJar
-    console.info(api, cookieJar)
   })
 
   describe('CookieJar', () => {
