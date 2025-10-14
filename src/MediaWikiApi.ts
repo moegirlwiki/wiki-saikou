@@ -87,24 +87,36 @@ export class MwApiBase {
         return ctx
       }
 
+      // If body has Blob, convert it to FormData
       if (
         typeof ctx.body === 'object' &&
         ctx.body !== null &&
         !(ctx.body instanceof URLSearchParams) &&
         !(ctx.body instanceof FormData)
       ) {
-        const body: any = ctx.body
-        Object.keys(body).forEach((key) => {
-          const data = MwApiBase.normalizeParamValue(body[key])
-          if (typeof data === 'undefined' || data === null) {
-            delete body[key]
-          } else if (data !== body[key]) {
-            body[key] = data
-          }
-        })
+        const hasFile = Object.values(ctx.body).some(
+          (value) => value instanceof File || value instanceof Blob
+        )
+        if (hasFile) {
+          const body = new FormData()
+          Object.entries(ctx.body).forEach(([key, value]) => {
+            body.append(key, value)
+          })
+          ctx.body = body
+        }
+      }
+
+      // If body is not FormData, convert it to URLSearchParams
+      if (
+        typeof ctx.body === 'object' &&
+        ctx.body !== null &&
+        !(ctx.body instanceof URLSearchParams) &&
+        !(ctx.body instanceof FormData)
+      ) {
         ctx.body = new URLSearchParams(ctx.body as any)
       }
 
+      // Adjust params
       if (
         (globalThis.FormData && ctx.body instanceof FormData) ||
         ctx.body instanceof URLSearchParams
@@ -190,7 +202,7 @@ export class MwApiBase {
 
   /** Base methods encapsulation */
   get<T = any>(query: MwApiParams, options?: FexiosRequestOptions) {
-    return this.request.get<T>('', {
+    return this.request.get<MwApiResponse<T>>('', {
       ...this.defaultOptions,
       query: {
         ...this.defaultParams,
@@ -204,7 +216,7 @@ export class MwApiBase {
     data: MwApiParams | URLSearchParams | FormData,
     options?: FexiosRequestOptions
   ) {
-    return this.request.post<T>('', data, {
+    return this.request.post<MwApiResponse<T>>('', data, {
       ...this.defaultOptions,
       query: { ...(this.defaultParams as any), ...this.defaultOptions.query },
       ...options,
@@ -332,7 +344,7 @@ export class MwApiBase {
     tokenType: MwTokenName,
     body: MwApiParams,
     options?: { tokenName?: string; retry?: number; noCache?: boolean }
-  ): Promise<FexiosFinalContext<T>> {
+  ): Promise<FexiosFinalContext<MwApiResponse<T>>> {
     const { tokenName = 'token', retry = 3, noCache = false } = options || {}
 
     if (retry < 1) {
@@ -351,7 +363,7 @@ export class MwApiBase {
         noCache: true,
       })
 
-    return this.post<T>({
+    return this.post<MwApiResponse<T>>({
       [tokenName]: token,
       ...body,
     })
@@ -379,14 +391,6 @@ export class MwApiBase {
   }
   postWithEditToken<T = any>(body: MwApiParams) {
     return this.postWithToken<T>('csrf', body)
-  }
-
-  static isBadTokenError(data?: any) {
-    return (
-      data?.error?.code === 'badtoken' ||
-      data?.errors?.some((i: any) => i.code === 'badtoken') ||
-      ['NeedToken', 'WrongToken'].includes(data?.login?.result)
-    )
   }
 
   async getMessages(ammessages: string[], amlang = 'zh', options: MwApiParams) {
@@ -427,6 +431,40 @@ export class MwApiBase {
     )
     return data.parse.text
   }
+
+  private static extractResponseDataFromAny<T = any>(
+    data?: any
+  ): T | undefined {
+    return data?.response?.data || data?.data || data || undefined
+  }
+
+  static isMediaWikiApiError(data?: any) {
+    const r = MwApiBase.extractResponseDataFromAny<MwApiResponse>(data)
+    return (
+      typeof r === 'object' && r !== null && ('error' in r || 'errors' in r)
+    )
+  }
+  isMediaWikiApiError = MwApiBase.isMediaWikiApiError
+
+  static extractMediaWikiErrors(data?: any): MwApiResponseError[] {
+    const r = MwApiBase.extractResponseDataFromAny<MwApiResponse>(data)
+    if (typeof r !== 'object' || r === null) {
+      return []
+    }
+    const error = r?.error
+    const errors = r?.errors
+    return [error, ...errors].filter(Boolean) as MwApiResponseError[]
+  }
+  extractMediaWikiErrors = MwApiBase.extractMediaWikiErrors
+
+  static isBadTokenError(data?: any) {
+    const errors = MwApiBase.extractMediaWikiErrors(data)
+    return (
+      errors.some((i) => i.code === 'badtoken') ||
+      ['NeedToken', 'WrongToken'].includes(data?.login?.result)
+    )
+  }
+  isBadTokenError = MwApiBase.isBadTokenError
 }
 
 // Errors
@@ -450,7 +488,7 @@ export class WikiSaikouError extends Error {
 // Types
 export type MwApiParams = Record<
   string,
-  string | number | string[] | undefined | boolean | File
+  string | number | string[] | undefined | boolean | File | Blob
 >
 export type MwTokenName =
   | 'createaccount'
@@ -460,3 +498,19 @@ export type MwTokenName =
   | 'rollback'
   | 'userrights'
   | 'watch'
+export type MwApiResponse<T = any> = T & {
+  batchcomplete?: string
+  continue?: {
+    [key: string]: string
+    continue: string
+  }
+  limits?: Record<string, number>
+  error?: MwApiResponseError
+  errors?: MwApiResponseError[]
+  warnings?: Record<string, { warnings: string }>
+}
+export interface MwApiResponseError {
+  code: string
+  info: string
+  docref?: string
+}
