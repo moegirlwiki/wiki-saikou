@@ -38,7 +38,6 @@ const createSessionId = () => `session_${crypto.randomUUID()}`
 
 const mockApi = new Hono()
 mockApi.use((ctx, next) => {
-  console.info(ctx.req.method, ctx.req.url)
   return next()
 })
 mockApi.all('/api.php', async (c) => {
@@ -48,7 +47,6 @@ mockApi.all('/api.php', async (c) => {
     ...query,
     ...body,
   }
-  console.info(query, body)
 
   if (data.origin?.toString()?.startsWith('https://')) {
     c.res.headers.set('access-control-allow-origin', data.origin.toString())
@@ -117,7 +115,8 @@ const handleQuery = (data: Record<string, any>, c: Context) => {
     const tokenTypes = data.type?.split('|') || ['csrf']
     result.query.tokens = {}
     tokenTypes.forEach((type: string) => {
-      result.query.tokens[`${type}token`] = MOCK_MW_TOKENS[type]
+      result.query.tokens[`${type}token`] =
+        MOCK_MW_TOKENS[type as keyof typeof MOCK_MW_TOKENS]
     })
 
     // If requesting login token, create and set a session cookie
