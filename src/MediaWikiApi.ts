@@ -76,6 +76,7 @@ export class MwApiBase {
       return item
     }
   }
+  normalizeParamValue = MwApiBase.normalizeParamValue
 
   static normalizeBody(body: any): URLSearchParams | FormData | undefined {
     const isFormLike = (body: any): body is URLSearchParams | FormData =>
@@ -122,6 +123,7 @@ export class MwApiBase {
 
     return void 0
   }
+  normalizeBody = MwApiBase.normalizeBody
 
   static createRequestHandler(baseURL: string) {
     const instance = new Fexios({
