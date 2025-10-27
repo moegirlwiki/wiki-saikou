@@ -10,11 +10,25 @@ import { deepMerge } from './utils/deepMerge.js'
 import { useRetry } from './utils/useRetry.js'
 
 export interface WikiSaikouConfig {
+  /**
+   * @default undefined // required in Node.js environment
+   * @default `${wgServer}${wgScriptPath}/api.php` // in MW pages
+   * @description The MediaWiki API endpoint, e.g. "https://www.mediawiki.org/w/api.php"
+   * @optional In real MediaWiki browser pages, `baseURL` can be omitted and will be inferred automatically based on `window.mw`
+   */
   baseURL: string
+  /**
+   * Transport/runtime options passed to the underlying Fexios instance (headers, fetch, credentials, etc.).
+   * @default { responseType: 'json' }
+   */
   fexiosConfigs: Partial<FexiosConfigs>
+  /**
+   * Default query parameters merged into every request.
+   * @default { action: 'query' }
+   */
   defaultParams: MwApiParams
   /**
-   * will throw MediaWikiApiError if the API response contains error/errors.
+   * When true, responses whose JSON body contains `error`/`errors` will throw `MediaWikiApiError` even if HTTP status is 2xx.
    * @default false
    */
   throwOnApiError: boolean
@@ -299,49 +313,6 @@ export class WikiSaikouCore {
     return res
   }
 
-  async login(
-    lgname: string,
-    lgpassword: string,
-    params?: MwApiParams,
-    postOptions?: { retry?: number; noCache?: boolean }
-  ): Promise<{
-    result: 'Success' | 'NeedToken' | 'WrongToken' | 'Failed'
-    token?: string
-    reason?: {
-      code: string
-      text: string
-    }
-    lguserid: number
-    lgusername: string
-  }> {
-    this.config.fexiosConfigs.credentials = 'include'
-
-    const res = await this.postWithToken(
-      'login',
-      {
-        action: 'login',
-        lgname,
-        lgpassword,
-        ...params,
-      },
-      {
-        tokenName: 'lgtoken',
-        ...postOptions,
-      }
-    )
-
-    const data = res?.data
-    if (data?.login?.result !== 'Success') {
-      throw new WikiSaikouError(
-        WikiSaikouErrorCode.LOGIN_FAILED,
-        data?.login?.reason?.text ||
-          data?.login?.result ||
-          'Login failed with unknown reason',
-        data
-      )
-    }
-    return data.login
-  }
   async getUserInfo() {
     const { data } = await this.get<{
       query: {

@@ -240,6 +240,47 @@ export function createMockServer() {
     })
   }
 
+  const handleClientLogin = (data: Record<string, any>, c: Context) => {
+    const { username, password, logintoken } = data
+
+    // Validate token matches the last issued login token
+    const validLoginToken = validTokens.get('login')
+    if (!logintoken || !validLoginToken || logintoken !== validLoginToken) {
+      return Response.json({
+        clientlogin: {
+          status: 'FAIL',
+          message: 'Invalid token',
+          messagecode: 'invalidtoken',
+          canpreservestate: true,
+        },
+      })
+    }
+
+    // For simplicity in browser tests, do not require cookie-based session here
+    if (username === MOCK_MW_USERNAME && password === MOCK_MW_PASSWORD) {
+      // If a session exists, mark it authenticated; otherwise ignore
+      const sessionData = getSession(c)
+      if (sessionData) {
+        mockSessions[sessionData.sessionId].authenticated = true
+      }
+      return Response.json({
+        clientlogin: {
+          status: 'PASS',
+          username: MOCK_MW_USERNAME,
+        },
+      })
+    }
+
+    return Response.json({
+      clientlogin: {
+        status: 'FAIL',
+        message: 'Incorrect username or password',
+        messagecode: 'wrongpassword',
+        canpreservestate: true,
+      },
+    })
+  }
+
   const handleEdit = (data: Record<string, any>, c: Context) => {
     const { title, text, token, summary } = data
 
@@ -384,6 +425,9 @@ export function createMockServer() {
         break
       case 'login':
         response = await handleLogin(data, c)
+        break
+      case 'clientlogin':
+        response = await handleClientLogin(data, c)
         break
       case 'edit':
         response = await handleEdit(data, c)

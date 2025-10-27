@@ -3,6 +3,8 @@ import {
   WikiSaikouCore,
   MwApiParams,
   WikiSaikouInitConfig,
+  WikiSaikouError,
+  WikiSaikouErrorCode,
 } from './WikiSaikou.js'
 import installCookieJar, { CookieJar } from './plugins/cookie-jar.js'
 import { resolveLegacyCtor } from './utils/resolveLegacyCtor.js'
@@ -37,6 +39,50 @@ export class MediaWikiApi extends WikiSaikouCore {
     )
     super(config)
     installCookieJar(this)
+  }
+
+  async login(
+    lgname: string,
+    lgpassword: string,
+    params?: MwApiParams,
+    postOptions?: { retry?: number; noCache?: boolean }
+  ): Promise<{
+    result: 'Success' | 'NeedToken' | 'WrongToken' | 'Failed'
+    token?: string
+    reason?: {
+      code: string
+      text: string
+    }
+    lguserid: number
+    lgusername: string
+  }> {
+    this.config.fexiosConfigs.credentials = 'include'
+
+    const res = await this.postWithToken(
+      'login',
+      {
+        action: 'login',
+        lgname,
+        lgpassword,
+        ...params,
+      },
+      {
+        tokenName: 'lgtoken',
+        ...postOptions,
+      }
+    )
+
+    const data = res?.data
+    if (data?.login?.result !== 'Success') {
+      throw new WikiSaikouError(
+        WikiSaikouErrorCode.LOGIN_FAILED,
+        data?.login?.reason?.text ||
+          data?.login?.result ||
+          'Login failed with unknown reason',
+        data
+      )
+    }
+    return data.login
   }
 }
 

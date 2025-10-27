@@ -1,8 +1,32 @@
 import { FexiosConfigs } from 'fexios'
-import { WikiSaikouCore, MwApiParams, WikiSaikouInitConfig } from './WikiSaikou.js'
+import {
+  WikiSaikouCore,
+  MwApiParams,
+  WikiSaikouInitConfig,
+  MediaWikiApiError,
+  MwApiResponse,
+  WikiSaikouError,
+  WikiSaikouErrorCode,
+} from './WikiSaikou.js'
 import { resolveLegacyCtor } from './utils/resolveLegacyCtor.js'
 
 export * from './WikiSaikou.js'
+
+export interface ClientLoginOptions extends MwApiParams {
+  rememberMe?: boolean
+  loginmessageformat?: string
+  loginreturnurl?: string
+  logincontinue?: boolean
+}
+export type ClientLoginResult =
+  | { status: 'PASS'; username: string }
+  | {
+      status: 'FAIL'
+      username: never
+      message: string
+      messagecode: string
+      canpreservestate: boolean
+    }
 
 /**
  * WikiSaikou
@@ -10,7 +34,41 @@ export * from './WikiSaikou.js'
  * @author Dragon-Fish <dragon-fish@qq.com>
  * @license MIT
  */
-export class MediaWikiApi extends WikiSaikouCore {}
+export class MediaWikiApi extends WikiSaikouCore {
+  async clientLogin(
+    username: string,
+    password: string,
+    params?: ClientLoginOptions
+  ) {
+    params ||= {}
+    if (!params.logincontinue && !params.loginreturnurl) {
+      params.loginreturnurl = location?.origin
+    }
+    const res = await this.postWithToken<{
+      clientlogin: ClientLoginResult
+    }>(
+      'login',
+      {
+        action: 'clientlogin',
+        username,
+        password,
+        ...params,
+      },
+      {
+        tokenName: 'logintoken',
+      }
+    )
+    if (res?.data?.clientlogin?.status === 'PASS') {
+      return res.data.clientlogin
+    } else {
+      throw new WikiSaikouError(
+        WikiSaikouErrorCode.LOGIN_FAILED,
+        res.data.clientlogin.message,
+        res
+      )
+    }
+  }
+}
 
 /**
  * WikiSaikou for foreign wiki
@@ -18,7 +76,7 @@ export class MediaWikiApi extends WikiSaikouCore {}
  * @author Dragon-Fish <dragon-fish@qq.com>
  * @license MIT
  */
-export class MediaWikiForeignApi extends WikiSaikouCore {
+export class MediaWikiForeignApi extends MediaWikiApi {
   /** @deprecated Use `new MediaWikiForeignApi(config)` instead */
   constructor(
     baseURL?: string,
