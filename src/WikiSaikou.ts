@@ -14,7 +14,7 @@ import { resolveLegacyCtor } from './utils/resolveLegacyCtor.js'
  * @author Dragon-Fish <dragon-fish@qq.com>
  * @license MIT
  */
-export class MwApiBase {
+export class WikiSaikou {
   readonly config: Required<WikiSaikouConfig>
   readonly version = import.meta.env.__VERSION__
   readonly request: Fexios
@@ -68,7 +68,7 @@ export class MwApiBase {
     // Init
     this.config = config
 
-    this.request = MwApiBase.createRequestHandler(this.baseURL)
+    this.request = WikiSaikou.createRequestHandler(this.baseURL)
   }
 
   setBaseURL(baseURL: string) {
@@ -87,7 +87,7 @@ export class MwApiBase {
       return item
     }
   }
-  normalizeParamValue = MwApiBase.normalizeParamValue
+  normalizeParamValue = WikiSaikou.normalizeParamValue
 
   static normalizeBody(body: any): URLSearchParams | FormData | undefined {
     const isFormLike = (body: any): body is URLSearchParams | FormData =>
@@ -99,7 +99,7 @@ export class MwApiBase {
 
     if (isFormLike(body)) {
       body.forEach((value, key) => {
-        const data = MwApiBase.normalizeParamValue(value)
+        const data = WikiSaikou.normalizeParamValue(value)
         if (data === void 0 || data === null) {
           body.delete(key)
         } else if (data !== value) {
@@ -112,7 +112,7 @@ export class MwApiBase {
     if (checkIsPlainObject(body)) {
       body = Object.fromEntries(
         Object.entries(body)
-          .map(([key, value]) => [key, MwApiBase.normalizeParamValue(value)])
+          .map(([key, value]) => [key, WikiSaikou.normalizeParamValue(value)])
           .filter(([key, value]) => value !== void 0 && value !== null)
       )
 
@@ -134,7 +134,7 @@ export class MwApiBase {
 
     return void 0
   }
-  normalizeBody = MwApiBase.normalizeBody
+  normalizeBody = WikiSaikou.normalizeBody
 
   static createRequestHandler(baseURL: string) {
     const instance = new Fexios({
@@ -153,7 +153,7 @@ export class MwApiBase {
         return ctx
       }
 
-      const body = (ctx.body = MwApiBase.normalizeBody(ctx.body)!)
+      const body = (ctx.body = WikiSaikou.normalizeBody(ctx.body)!)
 
       // remove duplicate params
       const query = new URLSearchParams(ctx.query as any)
@@ -178,7 +178,7 @@ export class MwApiBase {
 
     // Adjust query
     instance.on('beforeInit', (ctx) => {
-      ctx.query = MwApiBase.normalizeBody(ctx.query) || {}
+      ctx.query = WikiSaikou.normalizeBody(ctx.query) || {}
       return ctx
     })
 
@@ -242,7 +242,7 @@ export class MwApiBase {
   }
 
   private throwIfApiError(data?: any) {
-    const errors = MwApiBase.extractMediaWikiErrors(data)
+    const errors = WikiSaikou.extractMediaWikiErrors(data)
     if (errors.length > 0) {
       throw new MediaWikiApiError(
         errors.map((error) => error.info).join('\n'),
@@ -406,14 +406,14 @@ export class MwApiBase {
     })
       .then((ctx) => {
         const data = ctx.data
-        if (MwApiBase.isBadTokenError(data)) {
+        if (WikiSaikou.isBadTokenError(data)) {
           return doRetry()
         }
         return ctx
       })
       .catch((err) => {
         const data = err.data
-        if (MwApiBase.isBadTokenError(data) || err?.ok === false) {
+        if (WikiSaikou.isBadTokenError(data) || err?.ok === false) {
           return doRetry()
         } else if (typeof data === 'object' && data !== null) {
           return Promise.reject(data)
@@ -476,12 +476,12 @@ export class MwApiBase {
   }
 
   static includesMediaWikiApiError(data?: any) {
-    return MwApiBase.extractMediaWikiErrors(data).length > 0
+    return WikiSaikou.extractMediaWikiErrors(data).length > 0
   }
-  includesMediaWikiApiError = MwApiBase.includesMediaWikiApiError
+  includesMediaWikiApiError = WikiSaikou.includesMediaWikiApiError
 
   static extractMediaWikiErrors(data?: any): MwApiResponseError[] {
-    const r = MwApiBase.extractResponseDataFromAny<MwApiResponse>(data)
+    const r = WikiSaikou.extractResponseDataFromAny<MwApiResponse>(data)
     if (typeof r !== 'object' || r === null) {
       return []
     }
@@ -496,16 +496,21 @@ export class MwApiBase {
     }
     return result
   }
-  extractMediaWikiErrors = MwApiBase.extractMediaWikiErrors
+  extractMediaWikiErrors = WikiSaikou.extractMediaWikiErrors
 
   static isBadTokenError(data?: any) {
-    const errors = MwApiBase.extractMediaWikiErrors(data)
+    const errors = WikiSaikou.extractMediaWikiErrors(data)
     return (
       errors.some((i) => i.code === 'badtoken') ||
       ['NeedToken', 'WrongToken'].includes(data?.login?.result)
     )
   }
-  isBadTokenError = MwApiBase.isBadTokenError
+  isBadTokenError = WikiSaikou.isBadTokenError
+}
+
+export {
+  /** @deprecated Use `WikiSaikou` instead */
+  WikiSaikou as MwApiBase,
 }
 
 export interface WikiSaikouConfig {

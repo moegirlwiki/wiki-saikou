@@ -1,7 +1,7 @@
-import { MwApiBase } from '../MediaWikiApi.js'
+import { WikiSaikou } from '../WikiSaikou.js'
 
-declare module '../MediaWikiApi.js' {
-  interface MwApiBase {
+declare module '../WikiSaikou.js' {
+  interface WikiSaikou {
     cookieJar: CookieJar
   }
 }
@@ -314,7 +314,7 @@ export class CookieJar {
 /**
  * Cookie Jar插件
  */
-function installCookieJar(app: MwApiBase) {
+function installCookieJar(app: WikiSaikou) {
   const cookieJar = new CookieJar()
 
   // 请求拦截器：添加cookies到请求头

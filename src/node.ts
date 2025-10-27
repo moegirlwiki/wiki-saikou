@@ -1,9 +1,9 @@
 import { FexiosConfigs } from 'fexios'
-import { MwApiBase, MwApiParams, WikiSaikouConfig } from './MediaWikiApi.js'
+import { WikiSaikou, MwApiParams, WikiSaikouConfig } from './WikiSaikou.js'
 import installCookieJar, { CookieJar } from './plugins/cookie-jar.js'
 import { resolveLegacyCtor } from './utils/resolveLegacyCtor.js'
 
-export * from './MediaWikiApi.js'
+export * from './WikiSaikou.js'
 export * from './plugins/cookie-jar.js'
 
 /**
@@ -13,7 +13,7 @@ export * from './plugins/cookie-jar.js'
  * @author Dragon-Fish <dragon-fish@qq.com>
  * @license MIT
  */
-export class MediaWikiApi extends MwApiBase {
+export class MediaWikiApi extends WikiSaikou {
   readonly cookieJar!: CookieJar
   constructor(config?: WikiSaikouConfig)
   /** @deprecated Use `new MediaWikiApi(config)` instead */

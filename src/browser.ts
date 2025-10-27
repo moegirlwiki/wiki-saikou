@@ -1,8 +1,8 @@
 import { FexiosConfigs } from 'fexios'
-import { MwApiBase, MwApiParams, WikiSaikouConfig } from './MediaWikiApi.js'
+import { WikiSaikou, MwApiParams, WikiSaikouConfig } from './WikiSaikou.js'
 import { resolveLegacyCtor } from './utils/resolveLegacyCtor.js'
 
-export * from './MediaWikiApi.js'
+export * from './WikiSaikou.js'
 
 /**
  * MediaWiki Api
@@ -11,7 +11,7 @@ export * from './MediaWikiApi.js'
  * @author Dragon-Fish <dragon-fish@qq.com>
  * @license MIT
  */
-export class MediaWikiApi extends MwApiBase {}
+export class MediaWikiApi extends WikiSaikou {}
 
 /**
  * MediaWiki Foreign Api
@@ -20,7 +20,7 @@ export class MediaWikiApi extends MwApiBase {}
  * @author Dragon-Fish <dragon-fish@qq.com>
  * @license MIT
  */
-export class MediaWikiForeignApi extends MwApiBase {
+export class MediaWikiForeignApi extends WikiSaikou {
   /** @deprecated Use `new MediaWikiForeignApi(config)` instead */
   constructor(
     baseURL?: string,

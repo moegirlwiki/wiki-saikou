@@ -1,4 +1,4 @@
-import { MwApiBase, MwApiParams, WikiSaikouConfig } from '../MediaWikiApi.js'
+import { WikiSaikou, MwApiParams, WikiSaikouConfig } from '../WikiSaikou.js'
 import { FexiosConfigs } from 'fexios'
 import { deepMerge } from './deepMerge.js'
 
@@ -7,7 +7,7 @@ export const resolveLegacyCtor = (
   defaultOptions?: Partial<FexiosConfigs>,
   defaultParams?: MwApiParams
 ) => {
-  let config: Required<WikiSaikouConfig> = { ...MwApiBase.DEFAULT_CONFIGS }
+  let config: Required<WikiSaikouConfig> = { ...WikiSaikou.DEFAULT_CONFIGS }
   if (typeof configOrBaseURL === 'string') {
     config = deepMerge(config, {
       baseURL: configOrBaseURL,
