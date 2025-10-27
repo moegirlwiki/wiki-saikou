@@ -1,6 +1,6 @@
 {
   "include": ["src/**/*"],
-  "exclude": ["lib", "dist"],
+  "exclude": ["lib", "dist", "src/**/*.spec.*"],
   "compilerOptions": {
     "baseUrl": "./",
     "outDir": "dist",

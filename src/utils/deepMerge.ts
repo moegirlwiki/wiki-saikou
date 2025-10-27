@@ -1,6 +1,6 @@
 export const deepMerge = <T extends object>(
   obj: T,
-  ...incomes: Partial<T>[]
+  ...incomes: (Partial<T> | null | undefined)[]
 ): T => {
   const isPlainObject = (v: unknown): v is Record<string, unknown> =>
     Object.prototype.toString.call(v) === '[object Object]'
@@ -18,16 +18,14 @@ export const deepMerge = <T extends object>(
   const result: Record<PropertyKey, any> = clone(obj)
 
   for (const inc of incomes) {
-    if (inc == null) continue
+    if (inc === null || inc === void 0) continue
     for (const key of Reflect.ownKeys(inc)) {
       const nextVal = (inc as any)[key]
+      if (typeof nextVal === 'undefined') continue
       const prevVal = result[key]
-
       if (isPlainObject(prevVal) && isPlainObject(nextVal)) {
-        // 双方都是普通对象 -> 递归合并
         result[key] = deepMerge(prevVal, nextVal)
       } else {
-        // 包含数组/基础类型/特殊对象(Date/Map/Set/RegExp等) -> 整体替换
         result[key] = clone(nextVal)
       }
     }

@@ -1,17 +1,22 @@
-import { WikiSaikou, MwApiParams, WikiSaikouConfig } from '../WikiSaikou.js'
+import {
+  WikiSaikouCore,
+  MwApiParams,
+  WikiSaikouConfig,
+  WikiSaikouInitConfig,
+} from '../WikiSaikou.js'
 import { FexiosConfigs } from 'fexios'
 import { deepMerge } from './deepMerge.js'
 
 export const resolveLegacyCtor = (
-  configOrBaseURL?: WikiSaikouConfig | string,
+  configOrBaseURL?: WikiSaikouInitConfig | string,
   defaultOptions?: Partial<FexiosConfigs>,
   defaultParams?: MwApiParams
 ) => {
-  let config: Required<WikiSaikouConfig> = { ...WikiSaikou.DEFAULT_CONFIGS }
+  let config: Required<WikiSaikouConfig> = { ...WikiSaikouCore.DEFAULT_CONFIGS }
   if (typeof configOrBaseURL === 'string') {
     config = deepMerge(config, {
       baseURL: configOrBaseURL,
-      defaultOptions: defaultOptions || {},
+      fexiosConfigs: defaultOptions || {},
       defaultParams: defaultParams || {},
     })
   } else if (typeof configOrBaseURL === 'object' && configOrBaseURL !== null) {

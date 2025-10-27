@@ -8,7 +8,7 @@ import {
   mockFetch,
 } from './mockFetch.js'
 
-// 模拟浏览器环境的 location 对象
+// Mock the browser's location object
 const mockLocation = new URL('https://test-origin.example.com/Mainpage')
 ;(globalThis as any).location = mockLocation
 

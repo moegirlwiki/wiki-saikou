@@ -1,5 +1,9 @@
 import { FexiosConfigs } from 'fexios'
-import { WikiSaikou, MwApiParams, WikiSaikouConfig } from './WikiSaikou.js'
+import {
+  WikiSaikouCore,
+  MwApiParams,
+  WikiSaikouInitConfig,
+} from './WikiSaikou.js'
 import installCookieJar, { CookieJar } from './plugins/cookie-jar.js'
 import { resolveLegacyCtor } from './utils/resolveLegacyCtor.js'
 
@@ -7,15 +11,14 @@ export * from './WikiSaikou.js'
 export * from './plugins/cookie-jar.js'
 
 /**
- * MediaWiki Api
- * Provides the API call methods similar to `mw.Api` at non-mw environments
- *
+ * WikiSaikou
+ * @description Standalone MediaWiki API SDK with `mw.Api`-like API in any environments
  * @author Dragon-Fish <dragon-fish@qq.com>
  * @license MIT
  */
-export class MediaWikiApi extends WikiSaikou {
+export class MediaWikiApi extends WikiSaikouCore {
   readonly cookieJar!: CookieJar
-  constructor(config?: WikiSaikouConfig)
+  constructor(config?: WikiSaikouInitConfig)
   /** @deprecated Use `new MediaWikiApi(config)` instead */
   constructor(
     baseURL: string,
@@ -23,7 +26,7 @@ export class MediaWikiApi extends WikiSaikou {
     defaultParams?: MwApiParams
   )
   constructor(
-    configOrBaseURL?: WikiSaikouConfig | string,
+    configOrBaseURL?: WikiSaikouInitConfig | string,
     defaultOptions?: Partial<FexiosConfigs>,
     defaultParams?: MwApiParams
   ) {

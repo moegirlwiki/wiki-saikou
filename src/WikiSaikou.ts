@@ -6,34 +6,56 @@ import {
   checkIsPlainObject,
 } from 'fexios'
 import { resolveLegacyCtor } from './utils/resolveLegacyCtor.js'
+import { deepMerge } from './utils/deepMerge.js'
+import { useRetry } from './utils/useRetry.js'
+
+export interface WikiSaikouConfig {
+  baseURL: string
+  fexiosConfigs: Partial<FexiosConfigs>
+  defaultParams: MwApiParams
+  /**
+   * will throw MediaWikiApiError if the API response contains error/errors.
+   * @default false
+   */
+  throwOnApiError: boolean
+}
+
+export type WikiSaikouInitConfig = Omit<
+  Partial<WikiSaikouConfig>,
+  'baseURL'
+> & {
+  baseURL: string
+}
 
 /**
- * MediaWiki Api
- * Provides the API call methods similar to `mw.Api` at non-mw environments
- *
- * @author Dragon-Fish <dragon-fish@qq.com>
+ * WikiSaikou Core class
+ * @internal You **SHOULD NOT** use this class directly, instead, use the `MediaWikiApi` class.
+ * @author dragon-fish <dragon-fish@qq.com>
  * @license MIT
  */
-export class WikiSaikou {
+export class WikiSaikouCore {
   readonly config: Required<WikiSaikouConfig>
   readonly version = import.meta.env.__VERSION__
   readonly request: Fexios
-  private tokens: Record<string, string> = {}
+  private tokens = new Map<string, string>()
 
-  // for compatibility
+  // for backward compatibility
+  /** @deprecated Use `config.baseURL` instead */
   get baseURL() {
     return this.config.baseURL
   }
+  /** @deprecated Use `config.defaultParams` instead */
   get defaultParams(): MwApiParams {
     return this.config.defaultParams
   }
+  /** @deprecated Use `config.fexiosConfigs` instead */
   get defaultOptions(): Partial<FexiosConfigs> {
-    return this.config.defaultOptions
+    return this.config.fexiosConfigs
   }
 
   static DEFAULT_CONFIGS: Required<WikiSaikouConfig> = {
     baseURL: undefined as unknown as string,
-    defaultOptions: {
+    fexiosConfigs: {
       responseType: 'json',
     },
     defaultParams: {
@@ -54,24 +76,22 @@ export class WikiSaikou {
     defaultOptions?: Partial<FexiosConfigs>,
     defaultParams?: MwApiParams
   )
-  constructor(config?: WikiSaikouConfig)
+  constructor(config?: WikiSaikouInitConfig)
   constructor(
-    configOrBaseURL?: WikiSaikouConfig | string,
+    configOrBaseURL?: WikiSaikouInitConfig | string,
     defaultOptions?: Partial<FexiosConfigs>,
     defaultParams?: MwApiParams
   ) {
-    const config = resolveLegacyCtor(
+    const config = (this.config = resolveLegacyCtor(
       configOrBaseURL,
       defaultOptions,
       defaultParams
-    )
-    // Init
-    this.config = config
-
-    this.request = WikiSaikou.createRequestHandler(this.baseURL)
+    ))
+    this.request = WikiSaikouCore.createRequestHandler(config.baseURL)
   }
 
   setBaseURL(baseURL: string) {
+    this.config.baseURL = baseURL
     this.request.baseConfigs.baseURL = baseURL
     return this
   }
@@ -87,9 +107,9 @@ export class WikiSaikou {
       return item
     }
   }
-  normalizeParamValue = WikiSaikou.normalizeParamValue
+  normalizeParamValue = WikiSaikouCore.normalizeParamValue
 
-  static normalizeBody(body: any): URLSearchParams | FormData | undefined {
+  static normalizeBody(body: any): FormData | undefined {
     const isFormLike = (body: any): body is URLSearchParams | FormData =>
       body && (body instanceof URLSearchParams || body instanceof FormData)
 
@@ -97,44 +117,31 @@ export class WikiSaikou {
       return void 0
     }
 
+    const formData = new FormData()
+
     if (isFormLike(body)) {
       body.forEach((value, key) => {
-        const data = WikiSaikou.normalizeParamValue(value)
-        if (data === void 0 || data === null) {
-          body.delete(key)
-        } else if (data !== value) {
-          body.set(key, data as any)
+        const data = WikiSaikouCore.normalizeParamValue(value)
+        if (data !== null && data !== void 0) {
+          formData.append(key, data as any)
         }
       })
-      return body
+      return formData
     }
 
     if (checkIsPlainObject(body)) {
-      body = Object.fromEntries(
-        Object.entries(body)
-          .map(([key, value]) => [key, WikiSaikou.normalizeParamValue(value)])
-          .filter(([key, value]) => value !== void 0 && value !== null)
-      )
-
-      const hasBlob = Object.values(body).some(
-        (value) => value instanceof File || value instanceof Blob
-      )
-
-      if (hasBlob) {
-        body = new FormData()
-        Object.entries(body).forEach(([key, value]) => {
-          body.append(key, value)
-        })
-      } else {
-        body = new URLSearchParams(body as any)
-      }
-
-      return body
+      Object.entries(body).forEach(([key, value]) => {
+        const data = WikiSaikouCore.normalizeParamValue(value)
+        if (data !== null && data !== void 0) {
+          formData.append(key, data as any)
+        }
+      })
+      return formData
     }
 
     return void 0
   }
-  normalizeBody = WikiSaikou.normalizeBody
+  normalizeBody = WikiSaikouCore.normalizeBody
 
   static createRequestHandler(baseURL: string) {
     const instance = new Fexios({
@@ -142,7 +149,7 @@ export class WikiSaikou {
       responseType: 'json',
     })
 
-    // Adjust body
+    // Adjust request body for POST requests
     instance.on('beforeInit', (ctx) => {
       if (ctx.method?.toLowerCase() !== 'post') {
         return ctx
@@ -153,9 +160,9 @@ export class WikiSaikou {
         return ctx
       }
 
-      const body = (ctx.body = WikiSaikou.normalizeBody(ctx.body)!)
+      const body = (ctx.body = WikiSaikouCore.normalizeBody(ctx.body)!)
 
-      // remove duplicate params
+      // Remove duplicate params: prefer body over query for these keys
       const query = new URLSearchParams(ctx.query as any)
       if (body.has('format')) {
         query.delete('format')
@@ -166,7 +173,7 @@ export class WikiSaikou {
       if (body.has('action')) {
         query.delete('action')
       }
-      // `origin` must be in query because of CORS
+      // `origin` must be in query due to CORS requirements
       if (body.has('origin')) {
         query.set('origin', '' + body.get('origin'))
         body.delete('origin')
@@ -176,17 +183,17 @@ export class WikiSaikou {
       return ctx
     })
 
-    // Adjust query
+    // Normalize query into FormData-like object
     instance.on('beforeInit', (ctx) => {
-      ctx.query = WikiSaikou.normalizeBody(ctx.query) || {}
+      ctx.query = WikiSaikouCore.normalizeBody(ctx.query) || {}
       return ctx
     })
 
-    // Adjust origin param
+    // Adjust origin parameter and CORS related runtime configs
     instance.on('beforeRequest', (ctx) => {
       const url = new URL(ctx.url!)
       const searchParams = url.searchParams
-      // Adjust origin param
+      // Automatically add/remove origin based on current location and baseURL
       if (globalThis.location) {
         if (
           !searchParams.has('origin') &&
@@ -217,38 +224,42 @@ export class WikiSaikou {
   }
 
   /** Base methods encapsulation */
-  async get<T = any>(query: MwApiParams, options?: FexiosRequestOptions) {
-    const res = await this.request.get<MwApiResponse<T>>('', {
-      ...this.defaultOptions,
-      query: {
-        ...this.defaultParams,
-        ...this.defaultOptions.query,
-        ...(query as any),
-      },
-      ...options,
-    })
+  async get<T = any>(
+    query: MwApiParams,
+    options?: Partial<FexiosRequestOptions>
+  ) {
+    const res = await this.request.get<MwApiResponse<T>>(
+      '',
+      deepMerge(
+        this.config.fexiosConfigs,
+        { query: deepMerge(this.config.defaultParams, query) },
+        options
+      )
+    )
     return this.handleApiResponse(res)
   }
   async post<T = any>(
     data: MwApiParams | URLSearchParams | FormData,
-    options?: FexiosRequestOptions
+    options?: Partial<FexiosRequestOptions>
   ) {
-    const res = await this.request.post<MwApiResponse<T>>('', data, {
-      ...this.defaultOptions,
-      query: { ...(this.defaultParams as any), ...this.defaultOptions.query },
-      ...options,
-    })
+    const res = await this.request.post<MwApiResponse<T>>(
+      '',
+      data,
+      deepMerge(
+        this.config.fexiosConfigs,
+        {
+          query: this.config.defaultParams,
+        },
+        options
+      )
+    )
     return this.handleApiResponse(res)
   }
 
   private throwIfApiError(data?: any) {
-    const errors = WikiSaikou.extractMediaWikiErrors(data)
+    const errors = WikiSaikouCore.extractMediaWikiApiErrors(data)
     if (errors.length > 0) {
-      throw new MediaWikiApiError(
-        errors.map((error) => error.info).join('\n'),
-        errors,
-        data
-      )
+      throw new MediaWikiApiError(errors, data)
     }
   }
   private handleApiResponse<T = any>(
@@ -275,54 +286,23 @@ export class WikiSaikou {
     lguserid: number
     lgusername: string
   }> {
-    this.defaultOptions.credentials = 'include'
+    this.config.fexiosConfigs.credentials = 'include'
 
-    postOptions = postOptions || {}
-    postOptions.retry ??= 3
-
-    if (postOptions.retry < 1) {
-      throw new WikiSaikouError(
-        WikiSaikouErrorCode.LOGIN_RETRY_LIMIT_EXCEEDED,
-        'The limit of the number of times to automatically re-login has been exceeded'
-      )
-    }
-
-    // FIXME: This is ugly
-    let data: any
-    try {
-      const res = await this.postWithToken(
-        'login',
-        {
-          action: 'login',
-          lgname,
-          lgpassword,
-          ...params,
-        },
-        { tokenName: 'lgtoken', ...postOptions }
-      )
-      if (res?.data?.login) {
-        data = res.data
-      } else {
-        throw res
+    const res = await this.postWithToken(
+      'login',
+      {
+        action: 'login',
+        lgname,
+        lgpassword,
+        ...params,
+      },
+      {
+        tokenName: 'lgtoken',
+        ...postOptions,
       }
-    } catch (e: any) {
-      if (e instanceof WikiSaikouError) {
-        throw e
-      } else if (e?.ok === false) {
-        return this.login(lgname, lgpassword, params, {
-          ...postOptions,
-          noCache: true,
-          retry: postOptions.retry - 1,
-        })
-      } else {
-        throw new WikiSaikouError(
-          WikiSaikouErrorCode.HTTP_ERROR,
-          "The server returns an error, but it doesn't seem to be caused by MediaWiki",
-          e
-        )
-      }
-    }
+    )
 
+    const data = res?.data
     if (data?.login?.result !== 'Success') {
       throw new WikiSaikouError(
         WikiSaikouErrorCode.LOGIN_FAILED,
@@ -359,28 +339,42 @@ export class WikiSaikou {
   }
 
   /** Token Handler */
-  async getTokens(type: MwTokenName[] = ['csrf']) {
-    this.defaultOptions.credentials = 'include'
-    const { data } = await this.get({
+  async fetchTokens(types: MwTokenName[] = ['csrf']) {
+    this.config.fexiosConfigs.credentials = 'include'
+    const { data } = await this.get<{
+      query: { tokens: Record<MwTokenName, string> }
+    }>({
       action: 'query',
       meta: 'tokens',
-      type,
+      type: types,
     })
-    this.tokens = { ...this.tokens, ...data.query.tokens }
+    Object.entries(data.query.tokens).forEach(([type, token]) => {
+      this.tokens.set(type, token)
+    })
     return this.tokens
   }
-  async token(type: MwTokenName = 'csrf', noCache = false) {
-    if (!this.tokens[`${type}token`] || noCache) {
-      delete this.tokens[`${type}token`]
-      await this.getTokens([type])
+  async getToken(type: MwTokenName = 'csrf', noCache = false) {
+    if (!this.tokens.get(`${type}token`) || noCache) {
+      this.tokens.delete(`${type}token`)
+      await this.fetchTokens([type])
     }
-    return this.tokens[`${type}token`]
+    return this.tokens.get(`${type}token`)!
+  }
+  /** @deprecated Use `getToken` instead */
+  token = this.getToken
+  badToken(type: MwTokenName) {
+    this.tokens.delete(`${type}token`)
+    return this.tokens
   }
 
   async postWithToken<T = any>(
     tokenType: MwTokenName,
     body: MwApiParams,
-    options?: { tokenName?: string; retry?: number; noCache?: boolean }
+    options?: {
+      tokenName?: string
+      retry?: number
+      noCache?: boolean
+    }
   ): Promise<FexiosFinalContext<MwApiResponse<T>>> {
     const { tokenName = 'token', retry = 3, noCache = false } = options || {}
 
@@ -391,82 +385,67 @@ export class WikiSaikou {
       )
     }
 
-    const token = await this.token(tokenType, noCache)
+    let attemptIndex = 0
+    return useRetry<FexiosFinalContext<MwApiResponse<T>>>(
+      async () => {
+        const token = await this.getToken(
+          tokenType,
+          noCache || attemptIndex > 0
+        )
 
-    const doRetry = () =>
-      this.postWithToken(tokenType, body, {
-        tokenName,
-        retry: retry - 1,
-        noCache: true,
-      })
-
-    return this.post<MwApiResponse<T>>({
-      [tokenName]: token,
-      ...body,
-    })
-      .then((ctx) => {
-        const data = ctx.data
-        if (WikiSaikou.isBadTokenError(data)) {
-          return doRetry()
-        }
-        return ctx
-      })
-      .catch((err) => {
-        const data = err.data
-        if (WikiSaikou.isBadTokenError(data) || err?.ok === false) {
-          return doRetry()
-        } else if (typeof data === 'object' && data !== null) {
-          return Promise.reject(data)
-        } else {
-          throw new WikiSaikouError(
-            WikiSaikouErrorCode.HTTP_ERROR,
-            'The server returns an error, but it doesn’t seem to be caused by MediaWiki',
-            err
+        try {
+          const ctx = await this.post<MwApiResponse<T>>(
+            {
+              [tokenName]: token,
+              ...body,
+            },
+            undefined
           )
+
+          if (WikiSaikouCore.isBadTokenError(ctx.data)) {
+            this.badToken(tokenType)
+            throw ctx
+          }
+          return ctx
+        } catch (err: any) {
+          if (WikiSaikouCore.isBadTokenError(err) || err?.ok === false) {
+            this.badToken(tokenType)
+            throw err
+          } else if (MediaWikiApiError.is(err)) {
+            // MW 业务错误，直接透传
+            throw err
+          } else {
+            throw new WikiSaikouError(
+              WikiSaikouErrorCode.HTTP_ERROR,
+              'Network/transport or SDK-internal error (not a MediaWiki API error)',
+              err
+            )
+          }
         }
-      })
+      },
+      {
+        retry,
+        onRetry: (_error, count) => {
+          attemptIndex = count + 1
+        },
+        shouldRetry: (error) =>
+          WikiSaikouCore.isBadTokenError(error) || (error as any)?.ok === false,
+      }
+    ).catch((err) => {
+      // Map exhausted retry of retryable errors into SDK-level error
+      if (WikiSaikouCore.isBadTokenError(err) || (err as any)?.ok === false) {
+        throw new WikiSaikouError(
+          WikiSaikouErrorCode.TOKEN_RETRY_LIMIT_EXCEEDED,
+          'Retry attempts for acquiring/using token exhausted',
+          err as any
+        )
+      }
+      // For non-retryable errors like MediaWikiApiError, keep propagation as is
+      throw err
+    })
   }
   postWithEditToken<T = any>(body: MwApiParams) {
     return this.postWithToken<T>('csrf', body)
-  }
-
-  async getMessages(ammessages: string[], amlang = 'zh', options: MwApiParams) {
-    const { data } = await this.get({
-      action: 'query',
-      meta: 'allmessages',
-      ammessages,
-      amlang,
-      ...options,
-    })
-    const result: Record<string, string> = {}
-    data.query.allmessages.forEach(function (obj: {
-      missing?: boolean
-      name: string
-      content: string
-    }) {
-      if (!obj.missing) {
-        result[obj.name] = obj.content
-      }
-    })
-    return result
-  }
-
-  async parseWikitext(
-    wikitext: string,
-    title?: string,
-    extraBody?: MwApiParams,
-    options?: FexiosRequestOptions
-  ): Promise<string> {
-    const { data } = await this.post(
-      {
-        action: 'parse',
-        title,
-        text: wikitext,
-        ...extraBody,
-      },
-      options
-    )
-    return data.parse.text
   }
 
   private static extractResponseDataFromAny<T = any>(
@@ -476,12 +455,12 @@ export class WikiSaikou {
   }
 
   static includesMediaWikiApiError(data?: any) {
-    return WikiSaikou.extractMediaWikiErrors(data).length > 0
+    return WikiSaikouCore.extractMediaWikiApiErrors(data).length > 0
   }
-  includesMediaWikiApiError = WikiSaikou.includesMediaWikiApiError
+  includesMediaWikiApiError = WikiSaikouCore.includesMediaWikiApiError
 
-  static extractMediaWikiErrors(data?: any): MwApiResponseError[] {
-    const r = WikiSaikou.extractResponseDataFromAny<MwApiResponse>(data)
+  static extractMediaWikiApiErrors(data?: any): MwApiResponseError[] {
+    const r = WikiSaikouCore.extractResponseDataFromAny<MwApiResponse>(data)
     if (typeof r !== 'object' || r === null) {
       return []
     }
@@ -496,28 +475,22 @@ export class WikiSaikou {
     }
     return result
   }
-  extractMediaWikiErrors = WikiSaikou.extractMediaWikiErrors
+  extractMediaWikiApiErrors = WikiSaikouCore.extractMediaWikiApiErrors
 
-  static isBadTokenError(data?: any) {
-    const errors = WikiSaikou.extractMediaWikiErrors(data)
-    return (
-      errors.some((i) => i.code === 'badtoken') ||
-      ['NeedToken', 'WrongToken'].includes(data?.login?.result)
-    )
+  static isBadTokenError(data?: any): boolean {
+    if (MediaWikiApiError.is(data)) {
+      return data.isBadTokenError()
+    } else {
+      const errors = WikiSaikouCore.extractMediaWikiApiErrors(data)
+      return new MediaWikiApiError(errors).isBadTokenError()
+    }
   }
-  isBadTokenError = WikiSaikou.isBadTokenError
+  isBadTokenError = WikiSaikouCore.isBadTokenError
 }
 
 export {
   /** @deprecated Use `WikiSaikou` instead */
-  WikiSaikou as MwApiBase,
-}
-
-export interface WikiSaikouConfig {
-  baseURL: string
-  defaultOptions?: Partial<FexiosConfigs>
-  defaultParams?: MwApiParams
-  throwOnApiError?: boolean
+  WikiSaikouCore as MwApiBase,
 }
 
 // Errors
@@ -527,6 +500,12 @@ export enum WikiSaikouErrorCode {
   LOGIN_RETRY_LIMIT_EXCEEDED = 'LOGIN_RETRY_LIMIT_EXCEEDED',
   TOKEN_RETRY_LIMIT_EXCEEDED = 'TOKEN_RETRY_LIMIT_EXCEEDED',
 }
+/**
+ * WikiSaikou Error:
+ * - Transport/network failures (e.g., fetch failure, HTTP layer issues)
+ * - SDK behavioral errors such as exhausted internal retries or misconfigurations
+ * Note: When MediaWiki API responds with JSON containing error/errors, a MediaWikiApiError should be thrown instead
+ */
 export class WikiSaikouError extends Error {
   readonly name = 'WikiSaikouError'
   constructor(
@@ -536,20 +515,39 @@ export class WikiSaikouError extends Error {
   ) {
     super()
   }
-  static is(data?: any) {
-    return data instanceof this
+  static is(data?: any, code?: WikiSaikouErrorCode): data is WikiSaikouError {
+    return data instanceof this && (code === undefined || data.code === code)
   }
 }
+/**
+ * Server-side (MediaWiki API) business error:
+ * - fetch succeeded but JSON includes `error` or `errors.length > 0`
+ * - Special states (e.g., login NeedToken/WrongToken) are also considered API-side errors
+ * Note: network/retry issues belong to WikiSaikouError, not this class
+ */
 export class MediaWikiApiError extends Error {
   readonly name = 'MediaWikiApiError'
+  readonly code: string
   constructor(
-    readonly message: string = '',
-    readonly errors?: MwApiResponseError[],
+    readonly errors: MwApiResponseError[],
     readonly cause?: FexiosFinalContext
   ) {
     super()
+    this.message = errors.map((error) => error.info).join('\n')
+    this.code = this.isBadTokenError()
+      ? 'badtoken'
+      : this.errors[0]?.code || 'Unknown Error'
   }
-  static is(data?: any) {
+  isBadTokenError() {
+    return (
+      this.errors.some((error) => error.code === 'badtoken') ||
+      ['NeedToken', 'WrongToken'].includes(this.cause?.data?.login?.result)
+    )
+  }
+  toString() {
+    return `[${this.name} ${this.code}]`
+  }
+  static is(data?: any): data is MediaWikiApiError {
     return data instanceof this
   }
 }

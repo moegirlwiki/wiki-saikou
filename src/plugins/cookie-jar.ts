@@ -1,13 +1,13 @@
-import { WikiSaikou } from '../WikiSaikou.js'
+import { WikiSaikouCore } from '../WikiSaikou.js'
 
 declare module '../WikiSaikou.js' {
-  interface WikiSaikou {
+  interface WikiSaikouCore {
     cookieJar: CookieJar
   }
 }
 
 /**
- * Cookie对象接口
+ * Cookie object interface
  */
 export interface CookieJarItem {
   name: string
@@ -19,18 +19,18 @@ export interface CookieJarItem {
   secure?: boolean
   httpOnly?: boolean
   sameSite?: 'Strict' | 'Lax' | 'None'
-  // 内部字段，用于跟踪maxAge的创建时间
+  // Internal field to track creation time when maxAge is set
   _createdAt?: Date
 }
 
 /**
- * Cookie Jar类，用于管理cookies
+ * Cookie Jar class to manage cookies
  */
 export class CookieJar {
   private cookies: Map<string, CookieJarItem> = new Map()
 
   /**
-   * 设置cookie
+   * Set a cookie
    */
   setCookie(cookie: CookieJarItem, domain?: string, path?: string): void {
     const key = this.getCookieKey(
@@ -39,7 +39,7 @@ export class CookieJar {
       path || cookie.path
     )
 
-    // 为maxAge设置创建时间
+    // Set creation time if maxAge is provided
     const cookieWithTime = {
       ...cookie,
       domain: domain || cookie.domain,
@@ -51,14 +51,14 @@ export class CookieJar {
   }
 
   /**
-   * 获取cookie
+   * Get a cookie
    */
   getCookie(
     name: string,
     domain?: string,
     path?: string
   ): CookieJarItem | undefined {
-    // 首先尝试精确匹配
+    // Try exact match first
     const exactKey = this.getCookieKey(name, domain, path)
     let cookie = this.cookies.get(exactKey)
 
@@ -66,7 +66,7 @@ export class CookieJar {
       return cookie
     }
 
-    // 如果没有精确匹配，尝试模糊匹配
+    // If not found, try fuzzy match
     for (const storedCookie of this.cookies.values()) {
       if (
         storedCookie.name === name &&
@@ -81,7 +81,7 @@ export class CookieJar {
   }
 
   /**
-   * 获取所有匹配的cookies
+   * Get all matching cookies
    */
   getCookies(domain?: string, path?: string): CookieJarItem[] {
     const result: CookieJarItem[] = []
@@ -99,7 +99,7 @@ export class CookieJar {
   }
 
   /**
-   * 删除cookie
+   * Delete a cookie
    */
   deleteCookie(name: string, domain?: string, path?: string): boolean {
     const key = this.getCookieKey(name, domain, path)
@@ -107,14 +107,14 @@ export class CookieJar {
   }
 
   /**
-   * 清空所有cookies
+   * Clear all cookies
    */
   clear(): void {
     this.cookies.clear()
   }
 
   /**
-   * 清理过期的cookies
+   * Clean expired cookies
    */
   cleanExpiredCookies(): number {
     let cleanedCount = 0
@@ -131,7 +131,7 @@ export class CookieJar {
   }
 
   /**
-   * 获取所有cookies（包括过期的）
+   * Get all cookies (including expired ones)
    */
   getAllCookies(domain?: string, path?: string): CookieJarItem[] {
     const result: CookieJarItem[] = []
@@ -146,7 +146,7 @@ export class CookieJar {
   }
 
   /**
-   * 从Set-Cookie头解析cookies
+   * Parse cookies from Set-Cookie header
    */
   parseSetCookieHeader(
     setCookieHeader: string,
@@ -164,7 +164,7 @@ export class CookieJar {
   }
 
   /**
-   * 生成Cookie头字符串
+   * Generate Cookie header string
    */
   getCookieHeader(domain?: string, path?: string): string {
     const cookies = this.getCookies(domain, path)
@@ -175,14 +175,14 @@ export class CookieJar {
   }
 
   /**
-   * 获取cookie的唯一键
+   * Get the unique key for a cookie
    */
   private getCookieKey(name: string, domain?: string, path?: string): string {
     return `${name}:${domain || '*'}:${path || '/'}`
   }
 
   /**
-   * 检查cookie是否匹配指定的domain和path
+   * Check if cookie matches the given domain and path
    */
   private isCookieMatch(
     cookie: CookieJarItem,
@@ -201,7 +201,7 @@ export class CookieJar {
   }
 
   /**
-   * 检查domain是否匹配
+   * Check if domain matches
    */
   private isDomainMatch(cookieDomain: string, requestDomain: string): boolean {
     if (cookieDomain === requestDomain) {
@@ -219,7 +219,7 @@ export class CookieJar {
   }
 
   /**
-   * 检查path是否匹配
+   * Check if path matches
    */
   private isPathMatch(cookiePath: string, requestPath: string): boolean {
     if (cookiePath === requestPath) {
@@ -234,17 +234,17 @@ export class CookieJar {
   }
 
   /**
-   * 检查cookie是否过期
+   * Check if cookie is expired
    */
   private isCookieExpired(cookie: CookieJarItem): boolean {
     const now = new Date()
 
-    // 检查expires过期时间
+    // Check expires attribute
     if (cookie.expires) {
       return now > cookie.expires
     }
 
-    // 检查maxAge过期时间
+    // Check maxAge expiration time
     if (cookie.maxAge !== undefined && cookie._createdAt) {
       const expirationTime = new Date(
         cookie._createdAt.getTime() + cookie.maxAge * 1000
@@ -256,7 +256,7 @@ export class CookieJar {
   }
 
   /**
-   * 解析cookie字符串
+   * Parse cookie string
    */
   private parseCookieString(cookieStr: string): CookieJarItem | null {
     const parts = cookieStr.split(';').map((part) => part.trim())
@@ -276,7 +276,7 @@ export class CookieJar {
       const equalIndex = part.indexOf('=')
 
       if (equalIndex === -1) {
-        // 没有值的属性
+        // Attributes without value
         const attr = part.toLowerCase()
         if (attr === 'secure') {
           cookie.secure = true
@@ -312,12 +312,12 @@ export class CookieJar {
 }
 
 /**
- * Cookie Jar插件
+ * Cookie Jar plugin
  */
-function installCookieJar(app: WikiSaikou) {
+function installCookieJar(app: WikiSaikouCore) {
   const cookieJar = new CookieJar()
 
-  // 请求拦截器：添加cookies到请求头
+  // Request interceptor: add cookies to request headers
   app.request.interceptors.request.use((ctx) => {
     const url = new URL(ctx.url!)
     const cookieHeader = cookieJar.getCookieHeader(url.hostname, url.pathname)
@@ -332,7 +332,7 @@ function installCookieJar(app: WikiSaikou) {
     return ctx
   })
 
-  // 响应拦截器：解析Set-Cookie头
+  // Response interceptor: parse Set-Cookie header
   app.request.interceptors.response.use((ctx) => {
     const setCookieHeader = ctx.rawResponse?.headers?.get('set-cookie')
 
@@ -348,7 +348,7 @@ function installCookieJar(app: WikiSaikou) {
     return ctx
   })
 
-  // 将cookieJar实例添加到app上，方便外部访问
+  // Expose cookieJar instance on app for external access
   app.cookieJar = cookieJar
 
   return app

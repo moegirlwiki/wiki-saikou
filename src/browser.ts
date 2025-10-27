@@ -1,35 +1,33 @@
 import { FexiosConfigs } from 'fexios'
-import { WikiSaikou, MwApiParams, WikiSaikouConfig } from './WikiSaikou.js'
+import { WikiSaikouCore, MwApiParams, WikiSaikouInitConfig } from './WikiSaikou.js'
 import { resolveLegacyCtor } from './utils/resolveLegacyCtor.js'
 
 export * from './WikiSaikou.js'
 
 /**
- * MediaWiki Api
- * Provides the API call methods similar to `mw.Api` at non-mw environments
- *
+ * WikiSaikou
+ * @description Standalone MediaWiki API SDK with `mw.Api`-like API in any environments
  * @author Dragon-Fish <dragon-fish@qq.com>
  * @license MIT
  */
-export class MediaWikiApi extends WikiSaikou {}
+export class MediaWikiApi extends WikiSaikouCore {}
 
 /**
- * MediaWiki Foreign Api
- * Provides the API call methods similar to `mw.ForeignApi` at non-mw environments
- *
+ * WikiSaikou for foreign wiki
+ * @description Standalone MediaWiki API SDK with `mw.Api`-like API in any environments
  * @author Dragon-Fish <dragon-fish@qq.com>
  * @license MIT
  */
-export class MediaWikiForeignApi extends WikiSaikou {
+export class MediaWikiForeignApi extends WikiSaikouCore {
   /** @deprecated Use `new MediaWikiForeignApi(config)` instead */
   constructor(
     baseURL?: string,
     defaultOptions?: Partial<FexiosConfigs>,
     defaultParams?: MwApiParams
   )
-  constructor(config?: WikiSaikouConfig)
+  constructor(config?: WikiSaikouInitConfig)
   constructor(
-    configOrBaseURL?: WikiSaikouConfig | string,
+    configOrBaseURL?: WikiSaikouInitConfig | string,
     defaultOptions?: Partial<FexiosConfigs>,
     defaultParams?: MwApiParams
   ) {
