@@ -93,6 +93,38 @@ describe('MediaWikiApi', () => {
     expect(data.parse.links).to.be.an('array')
   })
 
+  it('throwOnApiError=true', async () => {
+    const mockServer = createMockServer()
+
+    const testApi = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: {
+        headers: {
+          'api-user-agent': env.API_USER_AGENT || '',
+        },
+        fetch: mockServer.mockFetch,
+      },
+      throwOnApiError: true,
+    })
+
+    // HTTP 200, but the body contains an error (typical MW core panic)
+    await expect(testApi.get({ action: 'testError' })).rejects.toMatchObject({
+      name: 'MediaWikiApiError',
+      code: 'testerror',
+    })
+
+    // HTTP 400, but the body contains an error (rare extension panic)
+    await expect(
+      testApi.get({ action: 'testError', httpError: 1 })
+    ).rejects.toMatchObject({ name: 'MediaWikiApiError', code: 'testerror' })
+
+    // post should also handle errors like get
+    await expect(testApi.post({ action: 'testError' })).rejects.toMatchObject({
+      name: 'MediaWikiApiError',
+      code: 'testerror',
+    })
+  })
+
   it('resolve legacy init options', () => {
     const legacy = new MediaWikiApi(
       'foo',

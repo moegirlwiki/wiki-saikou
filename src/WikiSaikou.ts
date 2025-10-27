@@ -228,32 +228,60 @@ export class WikiSaikouCore {
     query: MwApiParams,
     options?: Partial<FexiosRequestOptions>
   ) {
-    const res = await this.request.get<MwApiResponse<T>>(
-      '',
-      deepMerge(
-        this.config.fexiosConfigs,
-        { query: deepMerge(this.config.defaultParams, query) },
-        options
+    return this.runRequestWithApiErrorMapping(() =>
+      this.request.get<MwApiResponse<T>>(
+        '',
+        deepMerge(
+          this.config.fexiosConfigs,
+          { query: deepMerge(this.config.defaultParams, query) },
+          options
+        )
       )
     )
-    return this.handleApiResponse(res)
   }
   async post<T = any>(
     data: MwApiParams | URLSearchParams | FormData,
     options?: Partial<FexiosRequestOptions>
   ) {
-    const res = await this.request.post<MwApiResponse<T>>(
-      '',
-      data,
-      deepMerge(
-        this.config.fexiosConfigs,
-        {
-          query: this.config.defaultParams,
-        },
-        options
+    return this.runRequestWithApiErrorMapping(() =>
+      this.request.post<MwApiResponse<T>>(
+        '',
+        data,
+        deepMerge(
+          this.config.fexiosConfigs,
+          {
+            query: this.config.defaultParams,
+          },
+          options
+        )
       )
     )
-    return this.handleApiResponse(res)
+  }
+
+  /**
+   * Wrap a request to map non-2xx responses containing MediaWiki API error bodies
+   * into MediaWikiApiError when throwOnApiError=true, and then pass 2xx responses
+   * through handleApiResponse for unified processing.
+   */
+  private async runRequestWithApiErrorMapping<T = any>(
+    doRequest: () => Promise<FexiosFinalContext<MwApiResponse<T>>>
+  ): Promise<FexiosFinalContext<MwApiResponse<T>>> {
+    try {
+      const res = await doRequest()
+      return this.handleApiResponse(res)
+    } catch (err) {
+      // If HTTP is non-2xx but body includes MW API error, convert to MediaWikiApiError
+      if (
+        this.config.throwOnApiError &&
+        WikiSaikouCore.includesMediaWikiApiError(err)
+      ) {
+        throw new MediaWikiApiError(
+          WikiSaikouCore.extractMediaWikiApiErrors(err),
+          err as any
+        )
+      }
+      throw err as any
+    }
   }
 
   private throwIfApiError(data?: any) {

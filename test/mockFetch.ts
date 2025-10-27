@@ -346,6 +346,25 @@ export function createMockServer() {
     })
   }
 
+  const handleTestError = (data: Record<string, any>) => {
+    const payload = {
+      error: {
+        code: 'testerror',
+        info: 'This is a test mediawiki error',
+      },
+    }
+    // if httpError is truthy, respond with non-2xx status (e.g., 400)
+    if (
+      data.httpError === '1' ||
+      data.httpError === 1 ||
+      data.httpError === true
+    ) {
+      return Response.json(payload, { status: 400 })
+    }
+    // otherwise return 200 with error field to simulate core API behavior
+    return Response.json(payload)
+  }
+
   mockApi.all('/api.php', async (c) => {
     const query = c.req.query()
     const body = await c.req.parseBody()
@@ -371,6 +390,9 @@ export function createMockServer() {
         break
       case 'testBadtoken':
         response = await handleTestBadtoken(data, c)
+        break
+      case 'testError':
+        response = await handleTestError(data)
         break
       default:
         response = await c.json({ error: 'Not found' }, 404)
