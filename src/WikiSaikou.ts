@@ -470,6 +470,19 @@ export class WikiSaikouCore {
     if (Array.isArray(errors)) {
       result.push(...errors)
     }
+    result.forEach((error: any) => {
+      if (!error.text) {
+        if (error.info) {
+          // in rare cases, `info` appears instead of `text`
+          error.text = error.info
+        } else if (error['*']) {
+          // for formatversion=1, `*` is preferred over `text`
+          error.text = error['*']
+        } else {
+          error.text = ''
+        }
+      }
+    })
     return result
   }
   extractMediaWikiApiErrors = WikiSaikouCore.extractMediaWikiApiErrors
@@ -530,10 +543,16 @@ export class MediaWikiApiError extends Error {
     readonly cause?: FexiosFinalContext
   ) {
     super()
-    this.message = errors.map((error) => error.info).join('\n')
+    this.message = errors
+      .map((error) => error.text)
+      .filter(Boolean)
+      .join('\n')
     this.code = this.isBadTokenError()
       ? 'badtoken'
       : this.errors[0]?.code || 'Unknown Error'
+  }
+  get firstError() {
+    return this.errors[0]
   }
   isBadTokenError() {
     return (
@@ -575,6 +594,7 @@ export type MwApiResponse<T = any> = T & {
 }
 export interface MwApiResponseError {
   code: string
-  info: string
+  text: string
+  module?: string
   docref?: string
 }
