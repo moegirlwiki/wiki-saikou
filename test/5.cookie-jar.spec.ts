@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { MediaWikiApi } from 'wiki-saikou'
 import { CookieJar, type CookieJarItem } from 'wiki-saikou'
-import { MOCK_API_ENDPOINT_URL, mockFetch } from './mockFetch.ts'
+import { MOCK_API_ENDPOINT_URL, mockFetch } from './mockFetch.js'
+import { FexiosContext, FexiosFinalContext } from 'fexios'
 
 describe('Cookie Jar Plugin', () => {
   let api: MediaWikiApi
@@ -338,26 +339,18 @@ describe('Cookie Jar Plugin', () => {
       cookieJar.setCookie({
         name: 'testCookie',
         value: 'testValue',
-        domain: 'zh.wikipedia.org',
+        domain: MOCK_API_ENDPOINT_URL.hostname,
         path: '/',
       })
 
-      // Mock request interceptor
-      const mockCtx = {
-        url: 'https://zh.wikipedia.org/w/api.php',
-        headers: {},
-      }
+      api.request.on('beforeActualFetch', (ctx) => {
+        expect(ctx.rawRequest?.headers.get('cookie')).toContain(
+          'testCookie=testValue'
+        )
+        return ctx
+      })
 
-      // Call request interceptor
-      const handlers = api.request.interceptors.request.handlers
-      if (handlers && handlers.length > 0) {
-        const result = handlers[0].handler(mockCtx)
-        expect(result.headers?.Cookie).toContain('testCookie=testValue')
-      } else {
-        // If no interceptor, directly test cookie jar functionality
-        const cookieHeader = cookieJar.getCookieHeader('zh.wikipedia.org', '/')
-        expect(cookieHeader).toContain('testCookie=testValue')
-      }
+      await api.get({})
     })
   })
 })

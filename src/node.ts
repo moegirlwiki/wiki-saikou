@@ -1,6 +1,7 @@
 import { FexiosConfigs } from 'fexios'
-import { MwApiBase, MwApiParams } from './MediaWikiApi.js'
+import { MwApiBase, MwApiParams, WikiSaikouConfig } from './MediaWikiApi.js'
 import installCookieJar, { CookieJar } from './plugins/cookie-jar.js'
+import { resolveLegacyCtor } from './utils/resolveLegacyCtor.js'
 
 export * from './MediaWikiApi.js'
 export * from './plugins/cookie-jar.js'
@@ -14,12 +15,24 @@ export * from './plugins/cookie-jar.js'
  */
 export class MediaWikiApi extends MwApiBase {
   readonly cookieJar!: CookieJar
+  constructor(config?: WikiSaikouConfig)
+  /** @deprecated Use `new MediaWikiApi(config)` instead */
   constructor(
     baseURL: string,
     options?: Partial<FexiosConfigs>,
     defaultParams?: MwApiParams
+  )
+  constructor(
+    configOrBaseURL?: WikiSaikouConfig | string,
+    defaultOptions?: Partial<FexiosConfigs>,
+    defaultParams?: MwApiParams
   ) {
-    super(baseURL, options, defaultParams)
+    const config = resolveLegacyCtor(
+      configOrBaseURL,
+      defaultOptions,
+      defaultParams
+    )
+    super(config)
     installCookieJar(this)
   }
 }

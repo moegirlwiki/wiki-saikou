@@ -7,7 +7,7 @@ import {
   MOCK_MW_USERNAME,
   MOCK_MW_PASSWORD,
   mockFetch,
-} from './mockFetch.ts'
+} from './mockFetch.js'
 
 const api = new MediaWikiApi(MOCK_API_ENDPOINT_URL.href, {
   headers: {

@@ -6,13 +6,16 @@ import {
   MOCK_API_ENDPOINT_URL,
   MOCK_MW_SITE_NAME,
   mockFetch,
-} from './mockFetch.ts'
+} from './mockFetch.js'
 
-const api = new MediaWikiApi(MOCK_API_ENDPOINT_URL.href, {
-  headers: {
-    'api-user-agent': env.API_USER_AGENT || '',
+const api = new MediaWikiApi({
+  baseURL: MOCK_API_ENDPOINT_URL.href,
+  defaultOptions: {
+    headers: {
+      'api-user-agent': env.API_USER_AGENT || '',
+    },
+    fetch: mockFetch,
   },
-  fetch: mockFetch,
 })
 
 describe('MediaWikiApi', () => {

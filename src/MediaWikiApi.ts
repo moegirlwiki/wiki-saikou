@@ -5,6 +5,7 @@ import {
   FexiosFinalContext,
   checkIsPlainObject,
 } from 'fexios'
+import { resolveLegacyCtor } from './utils/resolveLegacyCtor.js'
 
 /**
  * MediaWiki Api
@@ -14,13 +15,32 @@ import {
  * @license MIT
  */
 export class MwApiBase {
+  readonly config: Required<WikiSaikouConfig>
   readonly version = import.meta.env.__VERSION__
   readonly request: Fexios
-  private tokens: Record<string, string>
+  private tokens: Record<string, string> = {}
 
-  readonly defaultParams: MwApiParams
-  readonly defaultOptions: Partial<FexiosConfigs>
+  // for compatibility
+  get baseURL() {
+    return this.config.baseURL
+  }
+  get defaultParams(): MwApiParams {
+    return this.config.defaultParams
+  }
+  get defaultOptions(): Partial<FexiosConfigs> {
+    return this.config.defaultOptions
+  }
 
+  static DEFAULT_CONFIGS: Required<WikiSaikouConfig> = {
+    baseURL: undefined as unknown as string,
+    defaultOptions: {
+      responseType: 'json',
+    },
+    defaultParams: {
+      action: 'query',
+    },
+    throwOnApiError: false,
+  }
   static INIT_DEFAULT_PARAMS: MwApiParams = {
     action: 'query',
     errorformat: 'plaintext',
@@ -28,34 +48,25 @@ export class MwApiBase {
     formatversion: 2,
   }
 
+  /** @deprecated Use `new MediaWikiApi(config)` instead */
   constructor(
-    readonly baseURL?: string,
+    baseURL?: string,
+    defaultOptions?: Partial<FexiosConfigs>,
+    defaultParams?: MwApiParams
+  )
+  constructor(config?: WikiSaikouConfig)
+  constructor(
+    configOrBaseURL?: WikiSaikouConfig | string,
     defaultOptions?: Partial<FexiosConfigs>,
     defaultParams?: MwApiParams
   ) {
-    // For MediaWiki browser environment
-    if (!baseURL && typeof window === 'object' && (window as any).mediaWiki) {
-      const { wgServer, wgScriptPath } =
-        (window as any).mediaWiki?.config?.get(['wgServer', 'wgScriptPath']) ||
-        {}
-      if (typeof wgServer === 'string' && typeof wgScriptPath === 'string') {
-        baseURL = `${wgServer}${wgScriptPath}/api.php`
-      }
-    }
-    if (typeof baseURL !== 'string') {
-      throw new Error('baseURL is undefined')
-    }
+    const config = resolveLegacyCtor(
+      configOrBaseURL,
+      defaultOptions,
+      defaultParams
+    )
     // Init
-    this.baseURL = baseURL
-    this.tokens = {}
-    this.defaultParams = {
-      ...MwApiBase.INIT_DEFAULT_PARAMS,
-      ...defaultParams,
-    }
-    this.defaultOptions = {
-      responseType: 'json',
-      ...defaultOptions,
-    }
+    this.config = config
 
     this.request = MwApiBase.createRequestHandler(this.baseURL)
   }
@@ -206,8 +217,8 @@ export class MwApiBase {
   }
 
   /** Base methods encapsulation */
-  get<T = any>(query: MwApiParams, options?: FexiosRequestOptions) {
-    return this.request.get<MwApiResponse<T>>('', {
+  async get<T = any>(query: MwApiParams, options?: FexiosRequestOptions) {
+    const res = await this.request.get<MwApiResponse<T>>('', {
       ...this.defaultOptions,
       query: {
         ...this.defaultParams,
@@ -216,16 +227,37 @@ export class MwApiBase {
       },
       ...options,
     })
+    return this.handleApiResponse(res)
   }
-  post<T = any>(
+  async post<T = any>(
     data: MwApiParams | URLSearchParams | FormData,
     options?: FexiosRequestOptions
   ) {
-    return this.request.post<MwApiResponse<T>>('', data, {
+    const res = await this.request.post<MwApiResponse<T>>('', data, {
       ...this.defaultOptions,
       query: { ...(this.defaultParams as any), ...this.defaultOptions.query },
       ...options,
     })
+    return this.handleApiResponse(res)
+  }
+
+  private throwIfApiError(data?: any) {
+    const errors = MwApiBase.extractMediaWikiErrors(data)
+    if (errors.length > 0) {
+      throw new MediaWikiApiError(
+        errors.map((error) => error.info).join('\n'),
+        errors,
+        data
+      )
+    }
+  }
+  private handleApiResponse<T = any>(
+    res: FexiosFinalContext<MwApiResponse<T>>
+  ) {
+    if (this.config.throwOnApiError) {
+      this.throwIfApiError(res.data)
+    }
+    return res
   }
 
   async login(
@@ -443,13 +475,10 @@ export class MwApiBase {
     return data?.response?.data || data?.data || data || undefined
   }
 
-  static isMediaWikiApiError(data?: any) {
-    const r = MwApiBase.extractResponseDataFromAny<MwApiResponse>(data)
-    return (
-      typeof r === 'object' && r !== null && ('error' in r || 'errors' in r)
-    )
+  static includesMediaWikiApiError(data?: any) {
+    return MwApiBase.extractMediaWikiErrors(data).length > 0
   }
-  isMediaWikiApiError = MwApiBase.isMediaWikiApiError
+  includesMediaWikiApiError = MwApiBase.includesMediaWikiApiError
 
   static extractMediaWikiErrors(data?: any): MwApiResponseError[] {
     const r = MwApiBase.extractResponseDataFromAny<MwApiResponse>(data)
@@ -479,6 +508,13 @@ export class MwApiBase {
   isBadTokenError = MwApiBase.isBadTokenError
 }
 
+export interface WikiSaikouConfig {
+  baseURL: string
+  defaultOptions?: Partial<FexiosConfigs>
+  defaultParams?: MwApiParams
+  throwOnApiError?: boolean
+}
+
 // Errors
 export enum WikiSaikouErrorCode {
   HTTP_ERROR = 'HTTP_ERROR',
@@ -494,6 +530,22 @@ export class WikiSaikouError extends Error {
     readonly cause?: FexiosFinalContext
   ) {
     super()
+  }
+  static is(data?: any) {
+    return data instanceof this
+  }
+}
+export class MediaWikiApiError extends Error {
+  readonly name = 'MediaWikiApiError'
+  constructor(
+    readonly message: string = '',
+    readonly errors?: MwApiResponseError[],
+    readonly cause?: FexiosFinalContext
+  ) {
+    super()
+  }
+  static is(data?: any) {
+    return data instanceof this
   }
 }
 

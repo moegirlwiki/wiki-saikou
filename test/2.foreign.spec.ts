@@ -6,7 +6,7 @@ import {
   MOCK_API_ENDPOINT_URL,
   MOCK_MW_SITE_NAME,
   mockFetch,
-} from './mockFetch.ts'
+} from './mockFetch.js'
 
 // 模拟浏览器环境的 location 对象
 const mockLocation = new URL('https://test-origin.example.com/Mainpage')

@@ -22,6 +22,11 @@ export default defineConfig(({ command, mode }) => {
     define: {
       'import.meta.env.__VERSION__': `"${version}"`,
     },
+    resolve: {
+      alias: {
+        '@': resolve(import.meta.dirname, 'src'),
+      },
+    },
     test: {
       testTimeout: 15 * 1000,
     },

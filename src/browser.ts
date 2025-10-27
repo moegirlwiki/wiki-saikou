@@ -1,5 +1,6 @@
 import { FexiosConfigs } from 'fexios'
-import { MwApiBase, MwApiParams } from './MediaWikiApi.js'
+import { MwApiBase, MwApiParams, WikiSaikouConfig } from './MediaWikiApi.js'
+import { resolveLegacyCtor } from './utils/resolveLegacyCtor.js'
 
 export * from './MediaWikiApi.js'
 
@@ -20,13 +21,20 @@ export class MediaWikiApi extends MwApiBase {}
  * @license MIT
  */
 export class MediaWikiForeignApi extends MwApiBase {
+  /** @deprecated Use `new MediaWikiForeignApi(config)` instead */
   constructor(
     baseURL?: string,
     defaultOptions?: Partial<FexiosConfigs>,
     defaultParams?: MwApiParams
+  )
+  constructor(config?: WikiSaikouConfig)
+  constructor(
+    configOrBaseURL?: WikiSaikouConfig | string,
+    defaultOptions?: Partial<FexiosConfigs>,
+    defaultParams?: MwApiParams
   ) {
-    super(
-      baseURL,
+    const config = resolveLegacyCtor(
+      configOrBaseURL,
       {
         credentials: 'include',
         mode: 'cors',
@@ -37,6 +45,7 @@ export class MediaWikiForeignApi extends MwApiBase {
         ...defaultParams,
       }
     )
+    super(config)
   }
 }
 
