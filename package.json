@@ -80,17 +80,17 @@
     "wiki-saikou": "workspace:^"
   },
   "devDependencies": {
-    "@microsoft/api-extractor": "^7.53.1",
-    "@types/node": "^22.18.10",
+    "@microsoft/api-extractor": "^7.53.3",
+    "@types/node": "^22.18.12",
     "cross-env": "^10.1.0",
     "dotenv": "^17.2.3",
-    "hono": "^4.9.12",
+    "hono": "^4.10.3",
     "npm-run-all2": "^8.0.4",
     "rimraf": "^6.0.1",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "unplugin-dts": "1.0.0-beta.6",
-    "vite": "^7.1.9",
-    "vitest": "^3.2.4"
+    "vite": "^7.1.12",
+    "vitest": "^4.0.3"
   }
 }
