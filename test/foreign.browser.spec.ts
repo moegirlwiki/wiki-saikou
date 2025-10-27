@@ -6,7 +6,7 @@ import {
   MOCK_API_ENDPOINT_URL,
   MOCK_MW_SITE_NAME,
   mockFetch,
-} from './mockFetch.js'
+} from './__mock__/mwApiServer.js'
 
 // Mock the browser's location object
 const mockLocation = new URL('https://test-origin.example.com/Mainpage')
@@ -20,7 +20,7 @@ const api = new MediaWikiForeignApi(MOCK_API_ENDPOINT_URL.href, {
   fetch: mockFetch,
 })
 
-describe('MediaWikiForeignApi', () => {
+describe('MediaWikiForeignApi (browser)', () => {
   it('[GET] siteinfo', async () => {
     const { data, response } = await api.get({
       action: 'query',

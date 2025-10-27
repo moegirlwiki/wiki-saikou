@@ -7,7 +7,7 @@ import {
   MOCK_MW_USERNAME,
   MOCK_MW_PASSWORD,
   mockFetch,
-} from './mockFetch.js'
+} from './__mock__/mwApiServer.js'
 
 const api = new MediaWikiApi(MOCK_API_ENDPOINT_URL.href, {
   headers: {
@@ -24,7 +24,7 @@ const editTitle = `User:${username}/sandbox/wiki-saikou`
 let editPageid = 0
 let editNewrevid = 0
 
-describe('Actions', { sequential: true }, () => {
+describe('Actions (edit)', { sequential: true }, () => {
   beforeAll(async () => {
     const login = await api.login(username, password)
     expect(login.result).to.equal('Success')

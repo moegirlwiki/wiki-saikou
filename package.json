@@ -40,7 +40,7 @@
   ],
   "scripts": {
     "test": "vitest run ./src ./test",
-    "build-test": "npm run build && npm run test",
+    "test:rebuild": "npm run build && npm run test",
     "clean": "rimraf dist/* lib/*",
     "build": "npm run clean && run-p build:*",
     "build:node": "cross-env BUILD_FORMAT=node vite build",
