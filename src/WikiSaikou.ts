@@ -67,21 +67,19 @@ export class WikiSaikouCore {
     return this.config.fexiosConfigs
   }
 
-  static DEFAULT_CONFIGS: Required<WikiSaikouConfig> = {
-    baseURL: undefined as unknown as string,
-    fexiosConfigs: {
-      responseType: 'json',
-    },
-    defaultParams: {
-      action: 'query',
-    },
-    throwOnApiError: false,
-  }
   static INIT_DEFAULT_PARAMS: MwApiParams = {
     action: 'query',
     errorformat: 'plaintext',
     format: 'json',
     formatversion: 2,
+  }
+  static DEFAULT_CONFIGS: Required<WikiSaikouConfig> = {
+    baseURL: undefined as unknown as string,
+    fexiosConfigs: {
+      responseType: 'json',
+    },
+    defaultParams: this.INIT_DEFAULT_PARAMS,
+    throwOnApiError: false,
   }
 
   /** @deprecated Use `new MediaWikiApi(config)` instead */
