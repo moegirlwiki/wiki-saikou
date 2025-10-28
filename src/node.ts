@@ -1,14 +1,11 @@
 import { FexiosConfigs } from 'fexios'
-import {
-  WikiSaikouCore,
-  MwApiParams,
-  WikiSaikouInitConfig,
-  WikiSaikouError,
-  WikiSaikouErrorCode,
-} from './WikiSaikou.js'
+import { WikiSaikouCore, WikiSaikouInitConfig } from './WikiSaikou.js'
 import installCookieJar, { CookieJar } from './plugins/cookie-jar.js'
 import { resolveLegacyCtor } from './utils/resolveLegacyCtor.js'
+import { MwApiParams } from './types.js'
+import { WikiSaikouError, WikiSaikouErrorCode } from './models/errors.js'
 
+// re-export for library users
 export * from './WikiSaikou.js'
 export * from './plugins/cookie-jar.js'
 
@@ -86,4 +83,5 @@ export class MediaWikiApi extends WikiSaikouCore {
   }
 }
 
+// alias
 export { MediaWikiApi as MwApi }

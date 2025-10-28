@@ -44,13 +44,20 @@ const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
 
 **在浏览器中直接使用 Use directly in the browser**
 
-```js
-import('https://unpkg.com/wiki-saikou/dist/browser.js').then(
-  ({ MediaWikiApi }) => {
-    const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
-    // ...
-  }
-)
+```html
+<!-- Method 1: Using ES Module (recommended) -->
+<script type="module">
+  import { MediaWikiApi } from 'https://unpkg.com/wiki-saikou/dist/browser.js'
+  const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
+  // ...
+</script>
+
+<!-- Method 2: Using UMD bundle -->
+<script src="https://unpkg.com/wiki-saikou/dist/browser.umd.js"></script>
+<script>
+  const api = new WikiSaikou.MediaWikiApi('https://zh.moegirl.org.cn/api.php')
+  // ...
+</script>
 ```
 
 Then use it just like the `new mw.Api()`
@@ -134,28 +141,75 @@ interface WikiSaikouConfig {
 - `clientLogin(username: string, password: string, params?: ClientLoginOptions): Promise<{ status: "PASS"; username: string; }>;`
   - Login with regular username & password. Throws `WikiSaikouError(LOGIN_FAILED)` if status is not `PASS`.
 
-### Convenience
+## 实用工具 Useful helpers
 
-- `getUserInfo(): Promise<{ id: number; name: string; groups: string[]; rights: string[]; /* ...block fields */ }>`
+### FexiosSaikou
 
-### Static helpers (advanced)
+A pre-configured Fexios instance with MediaWiki-friendly defaults:
 
-- `MediaWikiApi.normalizeParamValue(value: MwApiParams[keyof MwApiParams]): string | Blob | undefined`
-  - Arrays are joined with `|`, booleans map to `'1'`/omitted, numbers to strings.
-- `MediaWikiApi.normalizeBody(body: any): FormData | undefined`
-- `MediaWikiApi.createRequestHandler(baseURL: string): Fexios`
+- MediaWiki-specific request/response params normalization
+- built-in token management
+- error handling
 
-Note: the low-level handler created by `createRequestHandler` is for advanced scenarios and does not include any environment-specific enhancements beyond what the core sets up.
+### MwParamNormalizer
 
-### Errors and types
+`MwParamNormalizer` is a utility class that helps normalize MediaWiki API parameters.
 
-- `WikiSaikouErrorCode` and `WikiSaikouError` represent transport/SDK-level failures (e.g., HTTP/network issues, exhausted retries).
-- `MediaWikiApiError` represents MediaWiki API business errors (JSON includes `error`/`errors`, or special states like `NeedToken`/`WrongToken`).
-- `MwApiParams`, `MwApiResponse<T>`, `MwTokenName` are exported for typing your calls.
+```ts
+import { MwParamNormalizer } from 'wiki-saikou'
+
+MwParamNormalizer.normalizeBody({
+  string: 'foo',
+  number: 123,
+  boolean: true,
+  falsy: false,
+  undefined: undefined,
+  null: null,
+  array: ['foo', 'bar'],
+  file: new Blob(['file contents'], { type: 'text/plain' }),
+})
+// Result:
+/**
+ * FormData
+ * string=foo
+ * number=123
+ * boolean=1
+ * array=foo|bar
+ * file=[Blob]
+ */
+```
+
+## 错误处理 Errors and types
+
+> [!important]
+>
+> WikiSaikou will NOT throw errors for these situations by default:
+>
+> 1. non-2xx HTTP status codes
+> 2. MediaWiki API responses containing `error` or `errors` field
+>
+> You should handle these situations manually by checking the response context.
+
+- `WikiSaikouError`
+  - Transport/network failures (e.g., fetch failure, HTTP layer issues)
+  - SDK behavioral errors such as exhausted internal retries or misconfigurations
+  - Note: When MediaWiki API responds with JSON containing error/errors, a MediaWikiApiError should be thrown instead
+- `WikiSaikouErrorCode`
+  - Enum of error codes used in `WikiSaikouError`
+
+> [!NOTE]
+>
+> If you set `options.throwOnApiError = true` when constructing `MediaWikiApi`,
+> then WikiSaikou will handle MediaWiki API errors automatically by throwing `MediaWikiApiError` for you.
+
+- `MediaWikiApiError`
+  - fetch succeeded but JSON includes `error` or `errors.length > 0`
+  - Special states (e.g., login NeedToken/WrongToken) are also considered API-side errors
+  - Note: network/retry issues belong to WikiSaikouError, not this class
 
 ---
 
-### 浏览器相关 Browser
+## 浏览器专属 Browser only
 
 Besides `MediaWikiApi`, the browser bundle also provides `MediaWikiForeignApi` which presets CORS-friendly defaults for cross-origin API access.
 
@@ -167,7 +221,7 @@ Example:
 ```ts
 import { MediaWikiForeignApi } from 'wiki-saikou/browser'
 const api = new MediaWikiForeignApi({
-  baseURL: 'https://example.org/w/api.php',
+  baseURL: 'https://commons.wikimedia.org/w/api.php',
 })
 ```
 

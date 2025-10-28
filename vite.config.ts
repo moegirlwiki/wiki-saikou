@@ -27,9 +27,6 @@ export default defineConfig(({ command, mode }) => {
         '@': resolve(import.meta.dirname, 'src'),
       },
     },
-    test: {
-      testTimeout: 15 * 1000,
-    },
     plugins: [
       dts({
         tsconfigPath: resolve(import.meta.dirname, 'tsconfig.app.json'),

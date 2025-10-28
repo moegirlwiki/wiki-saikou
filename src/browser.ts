@@ -1,15 +1,10 @@
 import { FexiosConfigs } from 'fexios'
-import {
-  WikiSaikouCore,
-  MwApiParams,
-  WikiSaikouInitConfig,
-  MediaWikiApiError,
-  MwApiResponse,
-  WikiSaikouError,
-  WikiSaikouErrorCode,
-} from './WikiSaikou.js'
+import { WikiSaikouCore, WikiSaikouInitConfig } from './WikiSaikou.js'
 import { resolveLegacyCtor } from './utils/resolveLegacyCtor.js'
+import { WikiSaikouError, WikiSaikouErrorCode } from './models/errors.js'
+import { MwApiParams } from './types.js'
 
+// re-export for library users
 export * from './WikiSaikou.js'
 
 export interface ClientLoginOptions extends MwApiParams {
@@ -105,5 +100,5 @@ export class MediaWikiForeignApi extends MediaWikiApi {
   }
 }
 
-// Aliases
+// aliases
 export { MediaWikiApi as MwApi, MediaWikiForeignApi as ForeignApi }

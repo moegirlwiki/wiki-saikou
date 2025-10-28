@@ -1,6 +1,10 @@
+/**
+ * TODO: This should be provided to Fexios upstream
+ */
+
 import { WikiSaikouCore } from '../WikiSaikou.js'
 
-declare module '../WikiSaikou.js' {
+declare module '@/WikiSaikou.js' {
   interface WikiSaikouCore {
     cookieJar: CookieJar
   }

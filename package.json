@@ -33,15 +33,20 @@
       "types": "./dist/node.d.ts",
       "import": "./dist/node.js",
       "require": "./dist/node.cjs"
+    },
+    "./src/*": {
+      "source": "./src/*",
+      "types": "./dist/src/*"
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "src"
   ],
   "scripts": {
     "test": "vitest run ./src ./test",
     "test:rebuild": "npm run build && npm run test",
-    "clean": "rimraf dist/* lib/*",
+    "clean": "rimraf dist lib",
     "build": "npm run clean && run-p build:*",
     "build:node": "cross-env BUILD_FORMAT=node vite build",
     "build:browser-umd": "cross-env BUILD_FORMAT=browser-umd vite build",

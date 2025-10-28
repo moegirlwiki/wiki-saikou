@@ -1,11 +1,11 @@
+import { FexiosConfigs } from 'fexios'
 import {
   WikiSaikouCore,
-  MwApiParams,
   WikiSaikouConfig,
   WikiSaikouInitConfig,
 } from '../WikiSaikou.js'
-import { FexiosConfigs } from 'fexios'
-import { deepMerge } from './deepMerge.js'
+import { deepMerge } from '../utils/deepMerge.js'
+import { MwApiParams } from '../types.js'
 
 export const resolveLegacyCtor = (
   configOrBaseURL?: WikiSaikouInitConfig | string,

@@ -19,50 +19,12 @@ const api = new MediaWikiApi({
 })
 
 describe('MediaWikiApi Core (basic)', () => {
-  it('normalize param values', () => {
-    expect(MediaWikiApi.normalizeParamValue(true)).to.eq('1')
-    expect(MediaWikiApi.normalizeParamValue(false)).to.be.undefined
-    expect(MediaWikiApi.normalizeParamValue(123)).to.eq('123')
-    expect(MediaWikiApi.normalizeParamValue(['foo', 'bar'])).to.eq('foo|bar')
-    if (globalThis.File) {
-      const fakeFile = new File(['foo'], 'foo.txt', { type: 'text/plain' })
-      expect(MediaWikiApi.normalizeParamValue(fakeFile)).to.instanceOf(File)
-    }
-  })
-
-  it('normalize body (plain object)', () => {
-    const data = {
-      string: 'foo',
-      number: 123,
-      boolean: true,
-      falsy: false,
-      undefined: undefined,
-      null: null,
-      array: ['foo', 'bar'],
-    }
-    const normalized = MediaWikiApi.normalizeBody(data)!
-    expect(normalized).to.be.an('FormData')
-    expect(normalized.get('string')).to.eq('foo')
-    expect(normalized.get('number')).to.eq('123')
-    expect(normalized.get('boolean')).to.eq('1')
-    expect(normalized.get('falsy')).toBeNull()
-    expect(normalized.get('undefined')).toBeNull()
-    expect(normalized.get('null')).toBeNull()
-    expect(normalized.get('array')).to.eq('foo|bar')
-  })
-
   it('[GET] siteinfo', async () => {
     const { data } = await api.get({ action: 'query', meta: 'siteinfo' })
     expect(data.query.general).to.be.an('object')
     const info = data.query.general
     expect(info.sitename).to.eq(MOCK_MW_SITE_NAME)
     expect(info.servername).to.eq(MOCK_API_ENDPOINT_URL.hostname)
-  })
-
-  it('[GET] userinfo', async () => {
-    const info = await api.getUserInfo()
-    expect(info.id).to.be.a('number')
-    expect(info.name).to.be.an('string')
   })
 
   it('[GET] array as param', async () => {
