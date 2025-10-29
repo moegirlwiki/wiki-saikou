@@ -1,0 +1,85 @@
+name: Node.js Package Publish
+
+on:
+  push:
+    tags:
+      - '*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'The version to publish'
+        required: true
+      npm_tag:
+        description: 'The npm tag to publish'
+        required: false
+        default: 'latest'
+
+permissions:
+  contents: read
+  # Required for OIDC
+  # https://docs.npmjs.com/trusted-publishers
+  id-token: write
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      NPM_CONFIG_PROVENANCE: true
+      NPM_TAG: ${{ inputs.npm_tag || 'latest' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        name: Install pnpm
+        with:
+          version: latest
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+          registry-url: https://registry.npmjs.org/
+
+      - name: get-npm-version
+        id: package-version
+        uses: martinbeentjes/npm-get-version-action@v1.3.1
+
+      - name: Check version
+        shell: bash
+        run: |
+          PKG_VERSION="${{ steps.package-version.outputs.current-version }}"
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            if [[ "${{ inputs.version }}" != "$PKG_VERSION" ]]; then
+              echo "Version mismatch: ${{ inputs.version }} != $PKG_VERSION"
+              exit 1
+            fi
+          fi
+
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            TAG="${{ github.ref_name }}"
+            if [[ "$TAG" != "$PKG_VERSION" ]]; then
+              echo "Version mismatch: $TAG != $PKG_VERSION"
+              exit 1
+            fi
+          fi
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build
+        run: pnpm build
+
+      - name: Unit test
+        run: pnpm test
+
+      - name: Publish
+        run: pnpm publish --no-git-checks --tag "$NPM_TAG"
