@@ -80,7 +80,7 @@
   },
   "homepage": "https://github.com/moegirlwiki/wiki-saikou#readme",
   "dependencies": {
-    "fexios": "^3.2.0",
+    "fexios": "^4.1.0",
     "tslib": "^2.8.1",
     "wiki-saikou": "workspace:^"
   },

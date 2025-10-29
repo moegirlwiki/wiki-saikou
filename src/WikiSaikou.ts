@@ -102,8 +102,9 @@ export class WikiSaikouCore {
     return this.runRequestWithApiErrorMapping(() =>
       this.request.get<MwApiResponse<T>>(
         '',
-        deepMerge(
-          this.config.fexiosConfigs,
+        deepMerge<Partial<FexiosRequestOptions>>(
+          {},
+          this.config.fexiosConfigs as Partial<FexiosRequestOptions>,
           { query: deepMerge(this.config.defaultParams, query) },
           options
         )
@@ -118,8 +119,9 @@ export class WikiSaikouCore {
       this.request.post<MwApiResponse<T>>(
         '',
         data,
-        deepMerge(
-          this.config.fexiosConfigs,
+        deepMerge<Partial<FexiosRequestOptions>>(
+          {},
+          this.config.fexiosConfigs as Partial<FexiosRequestOptions>,
           {
             query: this.config.defaultParams,
           },

@@ -97,8 +97,16 @@ export class MediaWikiApiError extends Error {
  */
 export namespace WikiSaikouError {
   function extractResponseDataFromAny<T = any>(data?: any): T | undefined {
-    data instanceof Error && (data = (data as any).cause)
-    return data?.response?.data || data?.data || data || undefined
+    if (data == null) return undefined
+    // Prefer FexiosResponseError.response.data if present
+    if (data?.response?.data !== undefined) return data.response.data as T
+    // Then prefer context-like objects that already have data
+    if (data?.data !== undefined) return data.data as T
+    // Fall back to Error.cause chain
+    const cause = data instanceof Error ? (data as any).cause : undefined
+    if (cause?.response?.data !== undefined) return cause.response.data as T
+    if (cause?.data !== undefined) return cause.data as T
+    return (data as T) || undefined
   }
 
   export function includesMediaWikiApiError(data?: any) {
