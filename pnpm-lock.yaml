@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       fexios:
-        specifier: ^4.1.0
-        version: 4.1.0
+        specifier: ^4.2.0
+        version: 4.2.0
       tslib:
         specifier: ^2.8.1
         version: 2.8.1
@@ -626,8 +626,8 @@ packages:
       picomatch:
         optional: true
 
-  fexios@4.1.0:
-    resolution: {integrity: sha512-K02Tc0I/FaOTapvciCg7/oftm6gQd8EeF5OUPAQzpIEwqthwc/l2j1pMMQdwZnkavTc+5hGWSvIaqO5rgKJDlQ==}
+  fexios@4.2.0:
+    resolution: {integrity: sha512-trKkzrHsg5VAAOtaJbe5cFvBXiNM7/e+Ob/f6KV++i3cQSQGVglyK1YLgHLp4OwET4SgzRgXRCAW/h5JvY3+Rg==}
     engines: {node: ^16.15.0 || >=18.0.0}
 
   foreground-child@3.1.1:
@@ -1567,7 +1567,7 @@ snapshots:
     optionalDependencies:
       picomatch: 4.0.3
 
-  fexios@4.1.0:
+  fexios@4.2.0:
     dependencies:
       callable-instance: 2.0.0
       tslib: 2.8.1
