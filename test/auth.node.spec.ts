@@ -1,7 +1,7 @@
 import 'dotenv/config'
 import { describe, expect, it } from 'vitest'
 import { env } from 'process'
-import { MediaWikiApi as NodeApi, WikiSaikouErrorCode } from 'wiki-saikou'
+import { MediaWikiApi, WikiSaikouErrorCode } from 'wiki-saikou/node'
 import {
   MOCK_API_ENDPOINT_URL,
   MOCK_MW_USERNAME,
@@ -18,7 +18,7 @@ describe(
     sequential: true,
   },
   () => {
-    const api = new NodeApi(MOCK_API_ENDPOINT_URL.href, {
+    const api = new MediaWikiApi(MOCK_API_ENDPOINT_URL.href, {
       headers: {
         'api-user-agent': env.API_USER_AGENT || '',
       },
@@ -55,7 +55,7 @@ describe(
     })
 
     it('Edit without login should return notloggedin in body', async () => {
-      const unauthApi = new NodeApi(MOCK_API_ENDPOINT_URL.href, {
+      const unauthApi = new MediaWikiApi(MOCK_API_ENDPOINT_URL.href, {
         headers: {
           'api-user-agent': env.API_USER_AGENT || '',
         },
