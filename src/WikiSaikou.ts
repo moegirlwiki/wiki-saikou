@@ -310,7 +310,8 @@ export class WikiSaikouCore {
 export * from './models/errors.js'
 export * from './models/FexiosSaikou.js'
 export * from './models/MwParamNormalizer.js'
-export * from '@/types.js'
+export * from './types.js'
+export * from 'fexios'
 
 // for backward compatibility
 export {
