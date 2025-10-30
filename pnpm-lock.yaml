@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       fexios:
-        specifier: ^4.2.0
-        version: 4.2.0
+        specifier: ^4.3.1
+        version: 4.3.1
       tslib:
         specifier: ^2.8.1
         version: 2.8.1
@@ -530,9 +530,6 @@ packages:
   brace-expansion@2.0.1:
     resolution: {integrity: sha512-XnAIvQ8eM+kC6aULx6wuQiwVsnzsi9d3WxzV3FpWTGA19F621kwdbsAcFKXgKUHZWsy+mY6iL1sHTxWEFCytDA==}
 
-  callable-instance@2.0.0:
-    resolution: {integrity: sha512-wOBp/J1CRZLsbFxG1alxefJjoG1BW/nocXkUanAe2+leiD/+cVr00j8twSZoDiRy03o5vibq9pbrZc+EDjjUTw==}
-
   chai@6.2.0:
     resolution: {integrity: sha512-aUTnJc/JipRzJrNADXVvpVqi6CO0dn3nx4EVPxijri+fj3LUUDyZQOgVeW54Ob3Y1Xh9Iz8f+CgaCl8v0mn9bA==}
     engines: {node: '>=18'}
@@ -626,8 +623,8 @@ packages:
       picomatch:
         optional: true
 
-  fexios@4.2.0:
-    resolution: {integrity: sha512-trKkzrHsg5VAAOtaJbe5cFvBXiNM7/e+Ob/f6KV++i3cQSQGVglyK1YLgHLp4OwET4SgzRgXRCAW/h5JvY3+Rg==}
+  fexios@4.3.1:
+    resolution: {integrity: sha512-Z2mSiBhLZPdj4p1W/bvI2LmtYX21wMA0SwpqtMmvW5vLBbFHByW87GhPumtqtUJIRnNvRTAwYP0UW0C46+zIGQ==}
     engines: {node: ^16.15.0 || >=18.0.0}
 
   foreground-child@3.1.1:
@@ -1477,8 +1474,6 @@ snapshots:
     dependencies:
       balanced-match: 1.0.2
 
-  callable-instance@2.0.0: {}
-
   chai@6.2.0: {}
 
   color-convert@2.0.1:
@@ -1567,10 +1562,7 @@ snapshots:
     optionalDependencies:
       picomatch: 4.0.3
 
-  fexios@4.2.0:
-    dependencies:
-      callable-instance: 2.0.0
-      tslib: 2.8.1
+  fexios@4.3.1: {}
 
   foreground-child@3.1.1:
     dependencies:

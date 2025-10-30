@@ -1,13 +1,13 @@
 import { FexiosConfigs } from 'fexios'
 import { WikiSaikouCore, WikiSaikouInitConfig } from './WikiSaikou.js'
-import installCookieJar, { CookieJar } from './plugins/cookie-jar.js'
+import { CookieJar, type CookieJarItem, pluginCookieJar } from 'fexios/plugins'
 import { resolveLegacyCtor } from './utils/resolveLegacyCtor.js'
 import { MwApiParams } from './types.js'
 import { WikiSaikouError, WikiSaikouErrorCode } from './models/errors.js'
 
 // re-export for library users
 export * from './WikiSaikou.js'
-export * from './plugins/cookie-jar.js'
+export { CookieJar, CookieJarItem }
 
 /**
  * WikiSaikou
@@ -16,7 +16,6 @@ export * from './plugins/cookie-jar.js'
  * @license MIT
  */
 export class MediaWikiApi extends WikiSaikouCore {
-  readonly cookieJar!: CookieJar
   constructor(config?: WikiSaikouInitConfig)
   /** @deprecated Use `new MediaWikiApi(config)` instead */
   constructor(
@@ -35,7 +34,7 @@ export class MediaWikiApi extends WikiSaikouCore {
       defaultParams
     )
     super(config)
-    installCookieJar(this)
+    this.request.plugin(pluginCookieJar)
   }
 
   async login(
