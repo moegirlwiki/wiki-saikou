@@ -50,9 +50,9 @@ export function createFexiosSaikou(
   // Token handler
   instance._tokens = new Map<MwTokenName, string>()
   instance.on('afterResponse', (ctx) => {
-    const { data, rawRequest } = ctx
+    const { data } = ctx
     // Remove bad token
-    const tokenName = rawRequest?.headers.get('x-mw-token-name') as MwTokenName
+    const tokenName = ctx.customEnv?.mwTokenName as MwTokenName
     if (tokenName && WikiSaikouError.isBadTokenError(data)) {
       instance._tokens.delete(tokenName)
     }

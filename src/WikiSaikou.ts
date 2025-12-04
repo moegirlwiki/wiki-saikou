@@ -238,7 +238,9 @@ export class WikiSaikouCore {
               ...body,
             },
             deepMerge(fexiosOptions || {}, {
-              headers: { 'x-mw-token-name': tokenType },
+              customEnv: {
+                mwTokenName: tokenType,
+              },
             })
           )
 
