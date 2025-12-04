@@ -11,26 +11,21 @@
     "./package.json": "./package.json",
     ".": {
       "browser": {
-        "types": "./dist/browser.d.ts",
         "import": "./dist/browser.js",
         "require": "./dist/browser.umd.js"
       },
       "node": {
-        "types": "./dist/node.d.ts",
         "import": "./dist/node.js",
         "require": "./dist/node.cjs"
       },
-      "types": "./dist/node.d.ts",
       "import": "./dist/node.js",
       "require": "./dist/node.cjs"
     },
     "./browser": {
-      "types": "./dist/browser.d.ts",
       "import": "./dist/browser.js",
       "require": "./dist/browser.umd.js"
     },
     "./node": {
-      "types": "./dist/node.d.ts",
       "import": "./dist/node.js",
       "require": "./dist/node.cjs"
     },
