@@ -1,10 +1,7 @@
 import 'dotenv/config'
 import { describe, expect, it } from 'vitest'
 import { env } from 'process'
-import {
-  MediaWikiApi as BrowserApi,
-  WikiSaikouErrorCode,
-} from 'wiki-saikou/browser'
+import { MediaWikiApi as BrowserApi, WikiSaikouErrorCode } from '@/browser.js'
 import {
   MOCK_API_ENDPOINT_URL,
   MOCK_MW_USERNAME,

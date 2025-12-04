@@ -1,7 +1,7 @@
 import 'dotenv/config'
 import { describe, expect, it } from 'vitest'
 import { env } from 'process'
-import { MediaWikiApi } from 'wiki-saikou'
+import { MediaWikiApi } from '@/node.js'
 import {
   MOCK_API_ENDPOINT_URL,
   MOCK_MW_SITE_NAME,

@@ -1,7 +1,7 @@
 import 'dotenv/config'
 import { describe, expect, it } from 'vitest'
 import { env } from 'process'
-import { MediaWikiApi, WikiSaikouErrorCode } from 'wiki-saikou/node'
+import { MediaWikiApi, WikiSaikouErrorCode } from '@/node.js'
 import {
   MOCK_API_ENDPOINT_URL,
   MOCK_MW_USERNAME,
