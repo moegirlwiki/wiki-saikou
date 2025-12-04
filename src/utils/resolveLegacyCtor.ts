@@ -18,6 +18,7 @@ export const resolveLegacyCtor = (
       baseURL: configOrBaseURL,
       fexiosConfigs: defaultOptions || {},
       defaultParams: defaultParams || {},
+      throwOnApiError: false, // Set a default value for throwOnApiError
     })
   } else if (typeof configOrBaseURL === 'object' && configOrBaseURL !== null) {
     config = deepMerge(config, configOrBaseURL)
