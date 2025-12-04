@@ -1,4 +1,4 @@
-import { Fexios } from 'fexios'
+import { Fexios, FexiosQueryBuilder } from 'fexios'
 import {} from '../WikiSaikou.js'
 import { MwParamNormalizer } from './MwParamNormalizer.js'
 import { WikiSaikouError } from './errors.js'
@@ -47,31 +47,6 @@ export function createFexiosSaikou(
     })
   }
 
-  // Token handler
-  instance._tokens = new Map<MwTokenName, string>()
-  instance.on('afterResponse', (ctx) => {
-    const { data } = ctx
-    // Remove bad token
-    const tokenName = ctx.customEnv?.mwTokenName as MwTokenName
-    if (tokenName && WikiSaikouError.isBadTokenError(data)) {
-      instance._tokens.delete(tokenName)
-    }
-
-    // Store new tokens
-    const tokens = data?.query?.tokens
-    if (tokens && typeof tokens === 'object') {
-      Object.entries(tokens).forEach(([type, token]) => {
-        typeof token === 'string' &&
-          instance._tokens.set(type.replace(/token$/i, '').toLowerCase(), token)
-      })
-    }
-    const loginToken = data?.login?.token
-    if (typeof loginToken === 'string') {
-      instance._tokens.set('login', loginToken)
-    }
-    return ctx
-  })
-
   // Adjust request body for POST requests
   instance.on('beforeInit', (ctx) => {
     if (ctx.method?.toLowerCase() !== 'post') {
@@ -108,34 +83,66 @@ export function createFexiosSaikou(
 
   // Normalize query into FormData-like object
   instance.on('beforeInit', (ctx) => {
-    ctx.query = MwParamNormalizer.normalizeBody(ctx.query) || {}
+    ctx.query = FexiosQueryBuilder.mergeQueries(
+      {},
+      MwParamNormalizer.normalizeBody(ctx.query)
+    )
     return ctx
   })
 
   // Adjust origin parameter and CORS related runtime configs
   instance.on('beforeRequest', (ctx) => {
     const url = new URL(ctx.url!)
-    const searchParams = url.searchParams
+    // Convert ctx.query to a plain object for easier manipulation
+    const query = FexiosQueryBuilder.mergeQueries(url.searchParams, ctx.query)
+
     // Automatically add/remove origin based on current location and baseURL
     if (globalThis.location) {
-      if (!searchParams.has('origin') && location.origin !== url.origin) {
-        searchParams.set('origin', location.origin)
+      if (!query.origin && location.origin !== url.origin) {
+        query.origin = location.origin
         instance.baseConfigs.credentials = 'include'
         instance.baseConfigs.mode = 'cors'
       } else if (location.origin === url.origin) {
-        searchParams.delete('origin')
+        delete query.origin
         instance.baseConfigs.credentials = undefined
         instance.baseConfigs.mode = undefined
       }
     }
 
-    if (url.searchParams.has('origin')) {
-      const origin = encodeURIComponent(
-        url.searchParams.get('origin') || ''
-      ).replace(/\./g, '%2E')
-      ctx.query = {}
-      url.searchParams.delete('origin')
-      ctx.url = `${url}${url.search ? '&' : '?'}origin=${origin}`
+    if (query.origin) {
+      const origin = encodeURIComponent(query.origin).replace(/\./g, '%2E')
+      // Remove origin from query record, it will be added to URL directly
+      delete query.origin
+      ctx.query = query
+      // Append origin to URL directly with proper encoding
+      ctx.url = `${url.origin}${url.pathname}?origin=${origin}`
+    } else {
+      ctx.query = query
+    }
+    return ctx
+  })
+
+  // Token handler
+  instance._tokens = new Map<MwTokenName, string>()
+  instance.on('afterResponse', (ctx) => {
+    const { data } = ctx
+    // Remove bad token
+    const tokenName = ctx.customEnv?.mwTokenName as MwTokenName
+    if (tokenName && WikiSaikouError.isBadTokenError(data)) {
+      instance._tokens.delete(tokenName)
+    }
+
+    // Store new tokens
+    const tokens = data?.query?.tokens
+    if (tokens && typeof tokens === 'object') {
+      Object.entries(tokens).forEach(([type, token]) => {
+        typeof token === 'string' &&
+          instance._tokens.set(type.replace(/token$/i, '').toLowerCase(), token)
+      })
+    }
+    const loginToken = data?.login?.token
+    if (typeof loginToken === 'string') {
+      instance._tokens.set('login', loginToken)
     }
     return ctx
   })

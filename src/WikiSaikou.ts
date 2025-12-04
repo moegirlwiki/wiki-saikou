@@ -1,4 +1,9 @@
-import { FexiosConfigs, FexiosRequestOptions, FexiosFinalContext } from 'fexios'
+import {
+  FexiosConfigs,
+  FexiosRequestOptions,
+  FexiosFinalContext,
+  FexiosQueryBuilder,
+} from 'fexios'
 import { createFexiosSaikou, FexiosSaikou } from './models/FexiosSaikou.js'
 import { resolveLegacyCtor } from './utils/resolveLegacyCtor.js'
 import { deepMerge } from './utils/deepMerge.js'
@@ -99,16 +104,19 @@ export class WikiSaikouCore {
     query: MwApiParams,
     options?: Partial<FexiosRequestOptions>
   ) {
+    const payload = deepMerge<Partial<FexiosRequestOptions>>(
+      {},
+      this.config.fexiosConfigs as Partial<FexiosRequestOptions>,
+      {
+        query: FexiosQueryBuilder.mergeQueries(
+          this.config.defaultParams,
+          query
+        ),
+      },
+      options
+    )
     return this.runRequestWithApiErrorMapping(() =>
-      this.request.get<MwApiResponse<T>>(
-        '',
-        deepMerge<Partial<FexiosRequestOptions>>(
-          {},
-          this.config.fexiosConfigs as Partial<FexiosRequestOptions>,
-          { query: deepMerge(this.config.defaultParams, query) },
-          options
-        )
-      )
+      this.request.get<MwApiResponse<T>>('', payload)
     )
   }
   async post<T = any>(
