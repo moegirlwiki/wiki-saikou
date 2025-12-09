@@ -23,7 +23,7 @@ The library provides the out of box accessing to MediaWiki API in both browsers 
 
 ## 开箱即用 Out of box
 
-**安装 Installation**
+**通过 NPM 包安装 Installa via NPM**
 
 ```sh
 # Via pnpm:
@@ -41,6 +41,8 @@ import { MediaWikiApi } from 'wiki-saikou'
 const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
 // ...
 ```
+
+---
 
 **在浏览器中直接使用 Use directly in the browser**
 
@@ -75,11 +77,19 @@ const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
 </script>
 ```
 
-Then use it just like the `new mw.Api()`
+**Deno via CDN**
+
+```ts
+import { MediaWikiApi } from 'https://esm.run/wiki-saikou/node'
+const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
+// ...
+```
 
 ## 使用方法 Usage
 
-You can find sample code snippets in [unit test folder](test/).
+> You can find sample code snippets in [unit test folder](test/).
+
+It's similar to the `new mw.Api()`.
 
 ### 入口文件 Entry file
 
