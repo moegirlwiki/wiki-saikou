@@ -1,4 +1,4 @@
-import { FexiosConfigs } from 'fexios'
+import type { FexiosConfigs } from 'fexios'
 import { WikiSaikouCore, WikiSaikouInitConfig } from './WikiSaikou.js'
 import { CookieJar, type CookieJarItem, pluginCookieJar } from 'fexios/plugins'
 import { resolveLegacyCtor } from './utils/resolveLegacyCtor.js'

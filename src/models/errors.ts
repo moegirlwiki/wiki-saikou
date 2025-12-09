@@ -1,4 +1,4 @@
-import { FexiosFinalContext } from 'fexios'
+import type { FexiosFinalContext } from 'fexios'
 import { MwApiResponse, MwApiResponseError } from '../types.js'
 
 /**

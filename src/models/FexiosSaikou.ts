@@ -1,5 +1,4 @@
 import { Fexios, FexiosQueryBuilder } from 'fexios'
-import {} from '../WikiSaikou.js'
 import { MwParamNormalizer } from './MwParamNormalizer.js'
 import { WikiSaikouError } from './errors.js'
 import { MwTokenName } from '../types.js'

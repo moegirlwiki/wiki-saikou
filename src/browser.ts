@@ -1,4 +1,4 @@
-import { FexiosConfigs } from 'fexios'
+import type { FexiosConfigs } from 'fexios'
 import { WikiSaikouCore, WikiSaikouInitConfig } from './WikiSaikou.js'
 import { resolveLegacyCtor } from './utils/resolveLegacyCtor.js'
 import { WikiSaikouError, WikiSaikouErrorCode } from './models/errors.js'

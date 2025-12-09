@@ -1,9 +1,9 @@
-import {
+import type {
   FexiosConfigs,
   FexiosRequestOptions,
   FexiosFinalContext,
-  FexiosQueryBuilder,
 } from 'fexios'
+import { FexiosQueryBuilder } from 'fexios'
 import { createFexiosSaikou, FexiosSaikou } from './models/FexiosSaikou.js'
 import { resolveLegacyCtor } from './utils/resolveLegacyCtor.js'
 import { deepMerge } from './utils/deepMerge.js'

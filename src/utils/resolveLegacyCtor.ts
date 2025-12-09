@@ -1,4 +1,4 @@
-import { FexiosConfigs } from 'fexios'
+import type { FexiosConfigs } from 'fexios'
 import {
   WikiSaikouCore,
   WikiSaikouConfig,

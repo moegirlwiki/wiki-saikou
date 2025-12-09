@@ -9,10 +9,10 @@ const PROD =
   process.env.BUILD_ENV !== 'development'
 
 export default defineConfig(({ command, mode }) => {
-  const BUILD_FORMAT = process.env.BUILD_FORMAT || 'node'
+  const BUILD_FORMAT = process.env.BUILD_FORMAT || 'browser-es'
   const configs: UserConfig = {
     build: {
-      outDir: 'dist',
+      outDir: 'lib',
       emptyOutDir: false,
       sourcemap: true,
     },
@@ -36,28 +36,12 @@ export default defineConfig(({ command, mode }) => {
   }
 
   switch (BUILD_FORMAT) {
-    case 'node': {
-      configs.build!.lib = {
-        name: 'WikiSaikou',
-        entry: 'src/node.ts',
-        fileName: (format) => {
-          if (format === 'cjs') {
-            return 'node.cjs'
-          } else {
-            return 'node.js'
-          }
-        },
-        formats: ['es', 'cjs'],
-      }
-      break
-    }
-
     case 'browser-umd': {
       configs.build!.lib = {
         name: 'WikiSaikou',
         entry: 'src/browser.ts',
         formats: ['umd'],
-        fileName: () => 'browser.umd.js',
+        fileName: () => 'index.umd.js',
       }
       break
     }
@@ -67,7 +51,7 @@ export default defineConfig(({ command, mode }) => {
         name: 'WikiSaikou',
         entry: 'src/browser.ts',
         formats: ['es'],
-        fileName: () => 'browser.js',
+        fileName: () => 'index.mjs',
       }
       break
     }

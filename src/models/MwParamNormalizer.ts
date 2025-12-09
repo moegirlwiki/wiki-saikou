@@ -1,4 +1,4 @@
-import { checkIsPlainObject } from 'fexios'
+import { isPlainObject } from 'fexios'
 
 export namespace MwParamNormalizer {
   export function normalizeParamValue(item: any): string | Blob | undefined {
@@ -33,7 +33,7 @@ export namespace MwParamNormalizer {
       return formData
     }
 
-    if (checkIsPlainObject(body)) {
+    if (isPlainObject(body)) {
       Object.entries(body).forEach(([key, value]) => {
         const data = normalizeParamValue(value)
         if (data !== null && data !== void 0) {
