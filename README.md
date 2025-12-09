@@ -47,15 +47,30 @@ const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
 ```html
 <!-- Method 1: Using ES Module (recommended) -->
 <script type="module">
-  import { MediaWikiApi } from 'https://unpkg.com/wiki-saikou/dist/browser.js'
+  import { MediaWikiApi } from 'https://esm.run/wiki-saikou'
   const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
   // ...
 </script>
 
 <!-- Method 2: Using UMD bundle -->
-<script src="https://unpkg.com/wiki-saikou/dist/browser.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/wiki-saikou/lib/index.umd.js"></script>
 <script>
-  const api = new WikiSaikou.MediaWikiApi('https://zh.moegirl.org.cn/api.php')
+  const { MediaWikiApi } = window.WikiSaikou
+  const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
+  // ...
+</script>
+
+<!-- Method 3: Using import maps (experimental) -->
+<script type="importmap">
+  {
+    "imports": {
+      "wiki-saikou": "https://esm.run/wiki-saikou"
+    }
+  }
+</script>
+<script type="module">
+  import { MediaWikiApi } from 'wiki-saikou'
+  const api = new MediaWikiApi('https://zh.moegirl.org.cn/api.php')
   // ...
 </script>
 ```
