@@ -48,19 +48,21 @@ export function createFexiosSaikou(
 
   // Adjust request body for POST requests
   instance.on('beforeInit', (ctx) => {
-    if (ctx.method?.toLowerCase() !== 'post') {
+    if (ctx.request.method?.toLowerCase() !== 'post') {
       return ctx
     }
 
-    if (ctx.body === void 0 || ctx.body === null) {
-      ctx.body = void 0
+    if (ctx.request.body === void 0 || ctx.request.body === null) {
+      ctx.request.body = void 0
       return ctx
     }
 
-    const body = (ctx.body = MwParamNormalizer.normalizeBody(ctx.body)!)
+    const body = (ctx.request.body = MwParamNormalizer.normalizeBody(
+      ctx.request.body
+    )!)
 
     // Remove duplicate params: prefer body over query for these keys
-    const query = new URLSearchParams(ctx.query as any)
+    const query = new URLSearchParams(ctx.request.query as any)
     if (body.has('format')) {
       query.delete('format')
     }
@@ -75,23 +77,23 @@ export function createFexiosSaikou(
       query.set('origin', '' + body.get('origin'))
       body.delete('origin')
     }
-    ctx.query = Object.fromEntries(query.entries())
+    ctx.request.query = Object.fromEntries(query.entries())
 
     return ctx
   })
 
   // Normalize query into FormData-like object
   instance.on('beforeInit', (ctx) => {
-    ctx.query = FexiosQueryBuilder.mergeQueries(
+    ctx.request.query = FexiosQueryBuilder.mergeQueries(
       {},
-      MwParamNormalizer.normalizeBody(ctx.query)
+      MwParamNormalizer.normalizeBody(ctx.request.query)
     )
     return ctx
   })
 
   // Adjust origin parameter and CORS related runtime configs
   instance.on('beforeRequest', (ctx) => {
-    const url = new URL(ctx.url!)
+    const url = new URL(ctx.request.url!)
     // Convert ctx.query to a plain object for easier manipulation
     const query = FexiosQueryBuilder.mergeQueries(url.searchParams, ctx.query)
 
@@ -112,11 +114,11 @@ export function createFexiosSaikou(
       const origin = encodeURIComponent(query.origin).replace(/\./g, '%2E')
       // Remove origin from query record, it will be added to URL directly
       delete query.origin
-      ctx.query = query
+      ctx.request.query = query
       // Append origin to URL directly with proper encoding
-      ctx.url = `${url.origin}${url.pathname}?origin=${origin}`
+      ctx.request.url = `${url.origin}${url.pathname}?origin=${origin}`
     } else {
-      ctx.query = query
+      ctx.request.query = query
     }
     return ctx
   })
@@ -126,7 +128,7 @@ export function createFexiosSaikou(
   instance.on('afterResponse', (ctx) => {
     const { data } = ctx
     // Remove bad token
-    const tokenName = ctx.customEnv?.mwTokenName as MwTokenName
+    const tokenName = ctx.runtime.customEnv?.mwTokenName as MwTokenName
     if (tokenName && WikiSaikouError.isBadTokenError(data)) {
       instance._tokens.delete(tokenName)
     }
