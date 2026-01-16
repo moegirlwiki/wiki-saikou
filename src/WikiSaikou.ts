@@ -103,7 +103,7 @@ export class WikiSaikouCore {
   async get<T = any>(
     query: MwApiParams,
     options?: Partial<FexiosRequestOptions>
-  ) {
+  ): Promise<FexiosFinalContext<MwApiResponse<T>>> {
     const payload = deepMerge<Partial<FexiosRequestOptions>>(
       {},
       this.config.fexiosConfigs as Partial<FexiosRequestOptions>,
@@ -122,7 +122,7 @@ export class WikiSaikouCore {
   async post<T = any>(
     data: MwApiParams | URLSearchParams | FormData,
     options?: Partial<FexiosRequestOptions>
-  ) {
+  ): Promise<FexiosFinalContext<MwApiResponse<T>>> {
     return this.runRequestWithApiErrorMapping(() =>
       this.request.post<MwApiResponse<T>>(
         '',
@@ -293,7 +293,9 @@ export class WikiSaikouCore {
       throw err
     })
   }
-  postWithEditToken<T = any>(body: MwApiParams) {
+  postWithEditToken<T = any>(
+    body: MwApiParams
+  ): Promise<FexiosFinalContext<MwApiResponse<T>>> {
     return this.postWithToken<T>('csrf', body)
   }
 
