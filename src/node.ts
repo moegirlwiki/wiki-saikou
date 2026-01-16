@@ -37,6 +37,10 @@ export class MediaWikiApi extends WikiSaikouCore {
     this.request.plugin(pluginCookieJar)
   }
 
+  get cookieJar() {
+    return this.request.cookieJar!
+  }
+
   async login(
     lgname: string,
     lgpassword: string,
