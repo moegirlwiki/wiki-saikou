@@ -30,7 +30,7 @@ export function createMockServer() {
   // Mock session storage
   const mockSessions: Record<
     string,
-    { authenticated: boolean; created: number }
+    { authenticated: boolean; created: number; username?: string }
   > = {}
   const createSessionId = () => `session_${crypto.randomUUID()}`
 
@@ -49,6 +49,7 @@ export function createMockServer() {
 
   // Track generated tokens for validation
   const validTokens = new Map<string, string>() // type -> token
+  const sessionLoginTokens = new Map<string, string>() // sessionId -> login token
 
   // State for badtoken testing
   const state: MockServerState = {
@@ -93,7 +94,15 @@ export function createMockServer() {
       result.query.general = MOCK_MW_SITE_INFO
     }
     if (meta.includes('userinfo')) {
-      result.query.userinfo = MOCK_MW_USER_INFO
+      const sessionData = getSession(c)
+      if (sessionData?.session.authenticated && sessionData.session.username) {
+        result.query.userinfo = {
+          ...MOCK_MW_USER_INFO,
+          name: sessionData.session.username,
+        }
+      } else {
+        result.query.userinfo = MOCK_MW_USER_INFO
+      }
     }
     if (meta.includes('tokens')) {
       const tokenTypes = data.type?.split('|') || ['csrf']
@@ -105,19 +114,30 @@ export function createMockServer() {
         validTokens.set(type, token)
       })
 
-      // If requesting login token, create and set a session cookie
+      // If requesting login token, bind it to the current session (or create one)
       if (tokenTypes.includes('login')) {
-        const sessionId = createSessionId()
-        mockSessions[sessionId] = {
-          authenticated: false,
-          created: Date.now(),
+        const sessionData = getSession(c)
+        const sessionId = sessionData?.sessionId ?? createSessionId()
+
+        if (!sessionData) {
+          mockSessions[sessionId] = {
+            authenticated: false,
+            created: Date.now(),
+          }
+        }
+
+        const loginToken = result.query.tokens['logintoken']
+        if (typeof loginToken === 'string') {
+          sessionLoginTokens.set(sessionId, loginToken)
         }
 
         const response = Response.json(result)
-        response.headers.set(
-          'Set-Cookie',
-          `wiki_session=${sessionId}; Path=/; HttpOnly; SameSite=Lax`
-        )
+        if (!sessionData) {
+          response.headers.set(
+            'Set-Cookie',
+            `wiki_session=${sessionId}; Path=/; HttpOnly; SameSite=Lax`
+          )
+        }
         return response
       }
     }
@@ -197,7 +217,8 @@ export function createMockServer() {
     }
 
     // Validate token matches
-    const validLoginToken = validTokens.get('login')
+    const validLoginToken =
+      sessionLoginTokens.get(sessionData.sessionId) || validTokens.get('login')
     if (!lgtoken || !validLoginToken || lgtoken !== validLoginToken) {
       return Response.json({
         login: {
@@ -213,6 +234,8 @@ export function createMockServer() {
     if (lgname === MOCK_MW_USERNAME && lgpassword === MOCK_MW_PASSWORD) {
       // Mark session as authenticated
       mockSessions[sessionData.sessionId].authenticated = true
+      mockSessions[sessionData.sessionId].username = MOCK_MW_USERNAME
+      sessionLoginTokens.delete(sessionData.sessionId)
 
       const response = Response.json({
         login: {
@@ -406,6 +429,51 @@ export function createMockServer() {
     return Response.json(payload)
   }
 
+  const handleTestSessionStatus = () => {
+    const authenticatedSessions = Object.values(mockSessions).filter(
+      (session) => session.authenticated
+    ).length
+    return Response.json({
+      status: {
+        authenticatedSessions,
+      },
+    })
+  }
+
+  const handleLogout = (_data: Record<string, any>, c: Context) => {
+    const sessionData = getSession(c)
+    if (sessionData) {
+      mockSessions[sessionData.sessionId].authenticated = false
+      mockSessions[sessionData.sessionId].username = undefined
+      sessionLoginTokens.delete(sessionData.sessionId)
+    }
+    return Response.json({
+      logout: {
+        result: 'Success',
+      },
+    })
+  }
+
+  const handleTestDropLogin = (_data: Record<string, any>, c: Context) => {
+    const sessionData = getSession(c)
+    if (!sessionData) {
+      return Response.json({
+        error: {
+          code: 'notloggedin',
+          info: 'No active session to drop',
+        },
+      })
+    }
+    mockSessions[sessionData.sessionId].authenticated = false
+    mockSessions[sessionData.sessionId].username = undefined
+    return Response.json({
+      success: {
+        result: 'Success',
+        message: 'Session dropped',
+      },
+    })
+  }
+
   mockApi.all('/api.php', async (c) => {
     const query = c.req.query()
     const body = await c.req.parseBody()
@@ -416,6 +484,26 @@ export function createMockServer() {
 
     const action = data.action
     let response: Response
+    if (action !== 'login' && action !== 'testDropLogin' && data.assertuser) {
+      const sessionData = getSession(c)
+      const username = String(data.assertuser)
+      if (
+        !sessionData ||
+        !sessionData.session.authenticated ||
+        sessionData.session.username !== username
+      ) {
+        response = await c.json(
+          {
+            error: {
+              code: 'assertnameduserfailed',
+              info: 'You are no longer logged in as "TestUser", so the action could not be completed.',
+            },
+          },
+          200
+        )
+        return response
+      }
+    }
     switch (action) {
       case 'query':
         response = await handleQuery(data, c)
@@ -437,6 +525,15 @@ export function createMockServer() {
         break
       case 'testError':
         response = await handleTestError(data)
+        break
+      case 'testSessionStatus':
+        response = await handleTestSessionStatus()
+        break
+      case 'logout':
+        response = await handleLogout(data, c)
+        break
+      case 'testDropLogin':
+        response = await handleTestDropLogin(data, c)
         break
       default:
         response = await c.json({ error: 'Not found' }, 404)

@@ -158,8 +158,10 @@ interface WikiSaikouConfig {
 
 **Node.js** only:
 
-- `login(lgname: string, lgpassword: string, params?: MwApiParams, postOptions?: { retry?: number; noCache?: boolean }): Promise<{ result: 'Success' | 'NeedToken' | 'WrongToken' | 'Failed'; token?: string; reason?: { code: string; text: string }; lguserid: number; lgusername: string }>`
+- `login(lgname: string, lgpassword: string, params?: MwApiParams, postOptions?: { retry?: number; noCache?: boolean; autoRelogin?: boolean; autoReloginRetries?: number }): Promise<{ result: 'Success' | 'NeedToken' | 'WrongToken' | 'Failed'; token?: string; reason?: { code: string; text: string }; lguserid: number; lgusername: string }>`
   - Login with bot password. Throws `WikiSaikouError(LOGIN_FAILED)` if result is not `Success`.
+  - `autoRelogin` defaults to `true` and will attach `assertuser` to future requests. If the session drops, the SDK auto re-logins and retries the request.
+  - `autoReloginRetries` defaults to `3` and controls how many re-login attempts are made per `assertnameduserfailed` incident.
 
 **Browser** only:
 
