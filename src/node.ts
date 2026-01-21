@@ -230,10 +230,9 @@ export class MediaWikiApi extends WikiSaikouCore {
       ...requestOptions,
       url: ctx.request.url,
       customEnv: nextEnv,
-      onProgress: ctx.runtime.onProgress,
     })
 
-    return retryResponse.rawResponse ?? ctx
+    return retryResponse ?? ctx
   }
 
   async login(
@@ -324,4 +323,4 @@ export class MediaWikiApi extends WikiSaikouCore {
 }
 
 // alias
-export { MediaWikiApi as MwApi }
+export { MediaWikiApi as MwApi, MediaWikiApi as MediaWikiNodeClient }
