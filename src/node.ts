@@ -12,6 +12,7 @@ import { FexiosHookHandler } from 'fexios/types'
 
 // re-export for library users
 export * from './WikiSaikou.js'
+export * from './RestSaikou.js'
 export { CookieJar, CookieJarItem }
 
 /**

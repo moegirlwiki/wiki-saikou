@@ -60,6 +60,30 @@ export function createMockServer() {
 
   const mockApi = new Hono()
 
+  // --- REST API mock (rest.php) ---
+  // Minimal routes for testing `WikiSaikouCore.rest()` behavior.
+  mockApi.all('/rest.php/v1/page/:title', (c) => {
+    const title = c.req.param('title')
+    const url = new URL(c.req.url)
+    return c.json({
+      ok: true,
+      // Keep both decoded and raw forms for assertions.
+      titleDecoded: title,
+      pathname: url.pathname, // percent-encoded path
+      query: c.req.query(),
+    })
+  })
+
+  mockApi.all('/rest.php/v1/html', (c) => {
+    const html = `<!doctype html><html><head><title>Mock HTML</title></head><body><h1>Hello</h1></body></html>`
+    return new Response(html, {
+      status: 200,
+      headers: {
+        'content-type': 'text/html; charset=utf-8',
+      },
+    })
+  })
+
   // Helper function to parse cookies from request
   const parseCookies = (c: Context): Record<string, string> => {
     const cookieHeader = c.req.header('cookie')

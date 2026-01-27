@@ -19,6 +19,7 @@ export const resolveLegacyCtor = (
       fexiosConfigs: defaultOptions || {},
       defaultParams: defaultParams || {},
       throwOnApiError: false, // Set a default value for throwOnApiError
+      restApiEndpoint: undefined, // Set a default value for restApiEndpoint
     })
   } else if (typeof configOrBaseURL === 'object' && configOrBaseURL !== null) {
     config = deepMerge(config, configOrBaseURL)
@@ -33,6 +34,9 @@ export const resolveLegacyCtor = (
       (window as any).mediaWiki?.config?.get(['wgServer', 'wgScriptPath']) || {}
     if (typeof wgServer === 'string' && typeof wgScriptPath === 'string') {
       config.baseURL = `${wgServer}${wgScriptPath}/api.php`
+      if (config.baseURL.startsWith('//')) {
+        config.baseURL = `${window.location.protocol}${config.baseURL}`
+      }
     }
   }
   if (typeof config.baseURL !== 'string') {

@@ -49,7 +49,11 @@ export default defineConfig(({ command, mode }) => {
     case 'browser-es': {
       configs.build!.lib = {
         name: 'WikiSaikou',
-        entry: { index: 'src/browser.ts', core: 'src/WikiSaikou.ts' },
+        entry: {
+          index: 'src/browser.ts',
+          core: 'src/WikiSaikou.ts',
+          rest: 'src/RestSaikou.ts',
+        },
         formats: ['es'],
         fileName: (_, entry) => `${entry}.mjs`,
       }
