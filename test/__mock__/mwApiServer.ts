@@ -61,7 +61,7 @@ export function createMockServer() {
   const mockApi = new Hono()
 
   // --- REST API mock (rest.php) ---
-  // Minimal routes for testing `WikiSaikouCore.rest()` behavior.
+  // Minimal routes for testing REST (rest.php) client behavior.
   mockApi.all('/rest.php/v1/page/:title', (c) => {
     const title = c.req.param('title')
     const url = new URL(c.req.url)

@@ -8,11 +8,20 @@ import {
 } from './__mock__/mwApiServer.js'
 import { MediaWikiRestApi } from '@/node.js'
 
-describe('MediaWikiApi REST wrapper (rest.php)', () => {
+const MOCK_REST_ENDPOINT = MOCK_API_ENDPOINT_URL.href.replace(
+  /\/api\.php$/i,
+  '/rest.php/'
+)
+
+describe('MediaWiki REST client (rest.php)', () => {
+  it('throws when baseURL is not provided (Node.js)', () => {
+    expect(() => new MediaWikiRestApi({} as any)).to.throw()
+  })
+
   it('replaces {placeholders} via pathParams and keeps query', async () => {
     const mockServer = createMockServer()
     const api = new MediaWikiRestApi({
-      baseURL: MOCK_API_ENDPOINT_URL.href,
+      baseURL: MOCK_REST_ENDPOINT,
       fexiosConfigs: {
         headers: {
           'api-user-agent': env.API_USER_AGENT || '',
@@ -21,12 +30,12 @@ describe('MediaWikiApi REST wrapper (rest.php)', () => {
       },
     })
 
-    const { data } = await api.rest<{
+    const { data } = await api.get<{
       ok: boolean
       titleDecoded: string
       pathname: string
       query: Record<string, string>
-    }>('GET', '/v1/page/{title}', {
+    }>('/v1/page/{title}', {
       pathParams: { title: 'Main Page' },
       query: { search: 'baz' },
     })
@@ -38,10 +47,10 @@ describe('MediaWikiApi REST wrapper (rest.php)', () => {
     expect(data.query.search).to.equal('baz')
   })
 
-  it('throws when path placeholder is not provided', () => {
+  it('throws when path placeholder is not provided', async () => {
     const mockServer = createMockServer()
     const api = new MediaWikiRestApi({
-      baseURL: MOCK_API_ENDPOINT_URL.href,
+      baseURL: MOCK_REST_ENDPOINT,
       fexiosConfigs: {
         headers: {
           'api-user-agent': env.API_USER_AGENT || '',
@@ -50,19 +59,16 @@ describe('MediaWikiApi REST wrapper (rest.php)', () => {
       },
     })
 
-    try {
-      api.rest('GET', '/v1/page/{title}')
-      throw new Error('Expected rest() to throw')
-    } catch (e: any) {
-      expect(e?.name).to.equal('WikiSaikouError')
-      expect(e?.code).to.equal(WikiSaikouErrorCode.INVALID_REST_PATH)
-    }
+    await expect(api.get('/v1/page/{title}')).rejects.toMatchObject({
+      name: 'WikiSaikouError',
+      code: WikiSaikouErrorCode.INVALID_REST_PATH,
+    })
   })
 
   it('supports non-JSON REST responses (e.g. HTML)', async () => {
     const mockServer = createMockServer()
     const api = new MediaWikiRestApi({
-      baseURL: MOCK_API_ENDPOINT_URL.href,
+      baseURL: MOCK_REST_ENDPOINT,
       fexiosConfigs: {
         headers: {
           'api-user-agent': env.API_USER_AGENT || '',
@@ -71,16 +77,16 @@ describe('MediaWikiApi REST wrapper (rest.php)', () => {
       },
     })
 
-    const { data } = await api.rest('GET', '/v1/html')
+    const { data } = await api.get('/v1/html')
     expect(data).to.be.a('string')
     expect(String(data)).to.includes('<html>')
     expect(String(data)).to.includes('Mock HTML')
   })
 
-  it('infers rest.php from baseURL with query/hash', async () => {
+  it('ignores baseURL query/hash (does not leak into requests)', async () => {
     const mockServer = createMockServer()
     const api = new MediaWikiRestApi({
-      baseURL: `${MOCK_API_ENDPOINT_URL.href}?foo=bar#hash`,
+      baseURL: MOCK_REST_ENDPOINT + '?foo=bar#hash',
       fexiosConfigs: {
         headers: {
           'api-user-agent': env.API_USER_AGENT || '',
@@ -89,9 +95,9 @@ describe('MediaWikiApi REST wrapper (rest.php)', () => {
       },
     })
 
-    const { data } = await api.rest<{
+    const { data } = await api.get<{
       query: Record<string, string>
-    }>('GET', '/v1/page/{title}', {
+    }>('/v1/page/{title}', {
       pathParams: { title: 'Main Page' },
       query: { search: 'baz' },
     })
@@ -99,26 +105,5 @@ describe('MediaWikiApi REST wrapper (rest.php)', () => {
     // Ensure only the request query is present (baseURL query/hash shouldn't leak).
     expect(data.query.search).to.equal('baz')
     expect((data.query as any).foo).to.equal(undefined)
-  })
-
-  it('throws when baseURL cannot infer rest.php endpoint', () => {
-    const mockServer = createMockServer()
-    const api = new MediaWikiRestApi({
-      baseURL: 'https://wiki-saikou.test/w/index.php',
-      fexiosConfigs: {
-        headers: {
-          'api-user-agent': env.API_USER_AGENT || '',
-        },
-        fetch: mockServer.mockFetch,
-      },
-    })
-
-    try {
-      api.rest('GET', '/v1/html')
-      throw new Error('Expected rest() to throw')
-    } catch (e: any) {
-      expect(e?.name).to.equal('WikiSaikouError')
-      expect(e?.code).to.equal(WikiSaikouErrorCode.INVALID_REST_ENDPOINT)
-    }
   })
 })
