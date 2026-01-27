@@ -14,8 +14,27 @@ const MOCK_REST_ENDPOINT = MOCK_API_ENDPOINT_URL.href.replace(
 )
 
 describe('MediaWiki REST client (rest.php)', () => {
-  it('throws when baseURL is not provided (Node.js)', () => {
-    expect(() => new MediaWikiRestApi({} as any)).to.throw()
+  function expectInvalidRestEndpoint(ctor: () => unknown) {
+    try {
+      ctor()
+      throw new Error('Expected MediaWikiRestApi constructor to throw')
+    } catch (e: any) {
+      expect(e?.name).to.equal('WikiSaikouError')
+      expect(e?.code).to.equal(WikiSaikouErrorCode.INVALID_REST_ENDPOINT)
+    }
+  }
+
+  it('throws INVALID_REST_ENDPOINT when baseURL is not provided (Node.js)', () => {
+    expectInvalidRestEndpoint(() => new MediaWikiRestApi({} as any))
+  })
+
+  it('throws INVALID_REST_ENDPOINT when baseURL is relative/invalid (Node.js)', () => {
+    expectInvalidRestEndpoint(
+      () => new MediaWikiRestApi({ baseURL: '/rest.php' } as any)
+    )
+    expectInvalidRestEndpoint(
+      () => new MediaWikiRestApi({ baseURL: 'rest.php' } as any)
+    )
   })
 
   it('replaces {placeholders} via pathParams and keeps query', async () => {

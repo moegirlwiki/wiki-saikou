@@ -54,24 +54,13 @@ export class MediaWikiRestApi {
       (typeof window !== 'undefined'
         ? this.inferRestBaseURLFromMediaWikiConfig()
         : undefined)
+    const normalizedRestEndpoint = this.normalizeRestBaseURL(baseURL)
 
-    if (!baseURL) {
-      // Node: must provide baseURL. Browser: we already tried to infer it.
-      throw new WikiSaikouError(
-        WikiSaikouErrorCode.INVALID_REST_ENDPOINT,
-        typeof window === 'undefined'
-          ? 'Missing "baseURL" in Node.js environment. Please pass an absolute REST endpoint base URL.'
-          : 'Missing "baseURL" and unable to infer it from MediaWiki runtime config.'
-      )
-    }
+    // Store normalized baseURL as the canonical config value.
     this.config = {
-      baseURL,
+      baseURL: normalizedRestEndpoint,
       fexiosConfigs,
     }
-
-    const normalizedRestEndpoint = this.normalizeRestBaseURL(
-      this.config.baseURL
-    )
 
     // Prefer creating a dedicated plain Fexios instance for REST (no MW-specific hooks).
     this.http = new Fexios(
@@ -188,57 +177,95 @@ export class MediaWikiRestApi {
     path: string,
     pathParams?: Record<string, string>
   ): string {
-    // /v1/page/{title} + { title: 'Main Page' } = /v1/page/Main%20Page
-    if (pathParams) {
-      Object.entries(pathParams).forEach(([key, value]) => {
-        path = path.replaceAll(`{${key}}`, encodeURIComponent(value))
-      })
-    }
-    // Only treat single-level `{...}` as placeholders.
-    if (/\{[^{}]+\}/.test(path)) {
+    const requiredKeys = Array.from(path.matchAll(/\{([^{}]+)\}/g)).map(
+      (m) => m[1]
+    )
+
+    const provided = new Set(Object.keys(pathParams || {}))
+    const missing = requiredKeys.filter((k) => !provided.has(k))
+
+    if (missing.length) {
       throw new WikiSaikouError(
         WikiSaikouErrorCode.INVALID_REST_PATH,
-        `The REST path "${path}" is invalid, some parameters are not provided`
+        `The REST path "${path}" is invalid, missing parameters: ${missing.join(
+          ', '
+        )}`
       )
     }
+
+    if (pathParams) {
+      for (const [key, value] of Object.entries(pathParams)) {
+        path = path.replaceAll(`{${key}}`, encodeURIComponent(value))
+      }
+    }
+
     return path
   }
 
   private buildRestUrl(path: string): string {
     // Absolute URL: send as-is
-    if (/^https?:\/\//i.test(path)) {
-      return path
-    }
-    // Keep it relative to `this.http.baseConfigs.baseURL`.
-    // IMPORTANT: Do not start with `/`, otherwise URL resolution will drop `/rest.php/`.
+    if (/^https?:\/\//i.test(path)) return path
     return path.replace(/^\//, '')
   }
 
-  private normalizeEndpointNoSearchHash(endpoint: string): string {
-    try {
-      const u = new URL(
-        endpoint,
-        globalThis.location?.href || 'https://example.invalid/'
+  private normalizeRestBaseURL(baseURL?: string): string {
+    if (typeof baseURL !== 'string' || baseURL.trim() === '') {
+      throw new WikiSaikouError(
+        WikiSaikouErrorCode.INVALID_REST_ENDPOINT,
+        'Missing REST baseURL. Please pass an absolute URL like "https://example.org/w/rest.php/".'
       )
-      u.search = ''
-      u.hash = ''
-      return u.toString()
-    } catch {
-      // If it's not a valid URL string, return as-is.
-      return endpoint
     }
-  }
 
-  private normalizeRestBaseURL(baseURL: string): string {
-    const stripped = this.normalizeEndpointNoSearchHash(baseURL)
-    // Must be an absolute URL string, otherwise we can't safely use it as baseURL in Node.
-    if (!/^https?:\/\//i.test(stripped)) {
+    const raw = baseURL.trim()
+    const hasLocationProtocol = Boolean(
+      (globalThis as any).location?.protocol &&
+        typeof (globalThis as any).location?.protocol === 'string'
+    )
+
+    // Only accept:
+    // - absolute http(s) URL: https://example.org/w/rest.php/
+    // - (browser only) protocol-relative URL: //example.org/w/rest.php/
+    // Reject all relative URLs (e.g. /rest.php, rest.php) to avoid silent resolution.
+    let absoluteInput = raw
+    if (/^https?:\/\//i.test(raw)) {
+      // ok
+    } else if (/^\/\//.test(raw)) {
+      if (!hasLocationProtocol) {
+        throw new WikiSaikouError(
+          WikiSaikouErrorCode.INVALID_REST_ENDPOINT,
+          `Invalid REST baseURL "${baseURL}". Protocol-relative URL is only supported in browser environments. Please pass an absolute URL like "https://example.org/w/rest.php/".`
+        )
+      }
+      absoluteInput = `${(globalThis as any).location.protocol}${raw}`
+    } else {
       throw new WikiSaikouError(
         WikiSaikouErrorCode.INVALID_REST_ENDPOINT,
         `Invalid REST baseURL "${baseURL}". Please pass an absolute URL like "https://example.org/w/rest.php/".`
       )
     }
-    return /\/$/.test(stripped) ? stripped : stripped + '/'
+
+    let u: URL
+    try {
+      u = new URL(absoluteInput)
+    } catch {
+      throw new WikiSaikouError(
+        WikiSaikouErrorCode.INVALID_REST_ENDPOINT,
+        `Invalid REST baseURL "${baseURL}". Please pass an absolute URL like "https://example.org/w/rest.php/".`
+      )
+    }
+
+    if (!/^https?:$/i.test(u.protocol)) {
+      throw new WikiSaikouError(
+        WikiSaikouErrorCode.INVALID_REST_ENDPOINT,
+        `Invalid REST baseURL "${baseURL}". Please pass an absolute HTTP(S) URL.`
+      )
+    }
+
+    u.search = ''
+    u.hash = ''
+
+    const href = u.toString()
+    return /\/$/.test(href) ? href : href + '/'
   }
 
   private inferRestBaseURLFromMediaWikiConfig(): string | undefined {
