@@ -24,6 +24,15 @@ export interface WikiSaikouConfig {
    */
   baseURL: string
   /**
+   * MediaWiki REST API endpoint.
+   *
+   * If not provided, it will be inferred from `baseURL` when possible, e.g.
+   * `https://example.org/w/api.php` -> `https://example.org/w/rest.php/`.
+   *
+   * @optional Only used by REST-related helpers.
+   */
+  restApiEndpoint?: string
+  /**
    * Transport/runtime options passed to the underlying Fexios instance (headers, fetch, credentials, etc.).
    * @default { responseType: 'json' }
    */
@@ -66,6 +75,7 @@ export class WikiSaikouCore {
   }
   static DEFAULT_CONFIGS: Required<WikiSaikouConfig> = {
     baseURL: undefined as unknown as string,
+    restApiEndpoint: undefined as unknown as string,
     fexiosConfigs: {
       responseType: 'json',
     },

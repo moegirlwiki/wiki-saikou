@@ -25,6 +25,10 @@
       "import": "./dist/WikiSaikou.mjs",
       "require": "./dist/WikiSaikou.cjs"
     },
+    "./rest": {
+      "import": "./dist/RestSaikou.mjs",
+      "require": "./dist/RestSaikou.cjs"
+    },
     "./browser": {
       "import": "./dist/browser.mjs",
       "require": "./dist/browser.cjs"
