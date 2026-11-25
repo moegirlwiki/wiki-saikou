@@ -63,6 +63,13 @@ export interface WikiSaikouConfig {
    * Default delay in milliseconds (or backoff callback) between retry attempts.
    */
   retryDelay?: RetryDelayOption
+  /**
+   * Allow retrying non-idempotent POST writes on ambiguous transport/gateway failures
+   * (e.g. `fetch failed`, timeouts, HTTP 5xx). Disabled by default to prevent duplicate writes.
+   * Read-only `GET` and `action=query` `POST` requests always retry transport failures when `retry > 1`.
+   * @default false
+   */
+  retryOnTransportError?: boolean
 }
 
 export type WikiSaikouInitConfig = Omit<
@@ -82,7 +89,12 @@ export interface WikiSaikouRequestOptions
   /**
    * Delay in milliseconds (or backoff callback) between retry attempts.
    */
-  retryDelay?: number | ((error: Error, retryCount: number) => number)
+  retryDelay?: RetryDelayOption
+  /**
+   * Allow retrying non-idempotent POST writes on ambiguous transport/gateway failures.
+   * @default false (or `config.retryOnTransportError`)
+   */
+  retryOnTransportError?: boolean
 }
 
 /**
@@ -113,6 +125,7 @@ export class WikiSaikouCore {
     throwOnApiError: false,
     retry: 1,
     retryDelay: defaultTransportRetryDelay,
+    retryOnTransportError: false,
   }
 
   /** @deprecated Use `new MediaWikiApi(config)` instead */
@@ -142,10 +155,26 @@ export class WikiSaikouCore {
   }
 
   /** Base methods encapsulation */
+  private isReadOnlyPost(
+    data: MwApiParams | URLSearchParams | FormData
+  ): boolean {
+    let action: unknown
+    if (typeof FormData !== 'undefined' && data instanceof FormData) {
+      action = data.get('action')
+    } else if (data instanceof URLSearchParams) {
+      action = data.get('action')
+    } else if (data && typeof data === 'object') {
+      action = (data as MwApiParams).action
+    }
+    const effectiveAction = action ?? this.config.defaultParams?.action
+    return effectiveAction === 'query'
+  }
+
   private runWithTransportRetry<T = any>(
     doRequest: () => Promise<FexiosFinalContext<MwApiResponse<T>>>,
     retry = this.config.retry,
-    retryDelay: RetryDelayOption = this.config.retryDelay
+    retryDelay: RetryDelayOption = this.config.retryDelay,
+    allowTransportRetry = true
   ): Promise<FexiosFinalContext<MwApiResponse<T>>> {
     if (!Number.isFinite(retry)) {
       return Promise.reject(new RangeError('retry must be a finite number'))
@@ -156,7 +185,9 @@ export class WikiSaikouCore {
     return useRetry(() => this.runRequestWithApiErrorMapping(doRequest), {
       retry,
       retryDelay,
-      shouldRetry: (error) => isRetryableRequestError(error),
+      shouldRetry: (error) =>
+        isRetryableMediaWikiError(error) ||
+        (allowTransportRetry && isRetryableTransportError(error)),
     })
   }
 
@@ -167,6 +198,7 @@ export class WikiSaikouCore {
     const {
       retry = this.config.retry,
       retryDelay = this.config.retryDelay,
+      retryOnTransportError: _ignored,
       ...fexiosOptions
     } = options || {}
     const payload = deepMerge<Partial<FexiosRequestOptions>>(
@@ -183,7 +215,8 @@ export class WikiSaikouCore {
     return this.runWithTransportRetry(
       () => this.request.get<MwApiResponse<T>>('', payload),
       retry,
-      retryDelay
+      retryDelay,
+      true
     )
   }
   async post<T = any>(
@@ -193,8 +226,11 @@ export class WikiSaikouCore {
     const {
       retry = this.config.retry,
       retryDelay = this.config.retryDelay,
+      retryOnTransportError = this.config.retryOnTransportError,
       ...fexiosOptions
     } = options || {}
+    const allowTransportRetry =
+      Boolean(retryOnTransportError) || this.isReadOnlyPost(data)
     return this.runWithTransportRetry(
       () =>
         this.request.post<MwApiResponse<T>>(
@@ -210,7 +246,8 @@ export class WikiSaikouCore {
           )
         ),
       retry,
-      retryDelay
+      retryDelay,
+      allowTransportRetry
     )
   }
 
@@ -329,6 +366,7 @@ export class WikiSaikouCore {
       tokenName?: string
       retry?: number
       retryDelay?: RetryDelayOption
+      retryOnTransportError?: boolean
       noCache?: boolean
       fexiosOptions?: Partial<FexiosRequestOptions>
     }
@@ -337,9 +375,12 @@ export class WikiSaikouCore {
       tokenName = 'token',
       retry = this.config.retry > 1 ? this.config.retry : 3,
       retryDelay = this.config.retryDelay,
+      retryOnTransportError = this.config.retryOnTransportError,
       noCache = false,
       fexiosOptions,
     } = options || {}
+    const allowPostTransportRetry =
+      Boolean(retryOnTransportError) || this.isReadOnlyPost(body)
 
     if (!Number.isFinite(retry)) {
       throw new RangeError('retry must be a finite number')
@@ -355,12 +396,29 @@ export class WikiSaikouCore {
     let shouldRefreshToken = noCache
     return useRetry<FexiosFinalContext<MwApiResponse<T>>>(
       async () => {
+        let token: string
         try {
-          const token = await this.getToken(
+          token = await this.getToken(
             tokenType,
             shouldRefreshToken || (attemptIndex > 0 && !this.tokens.get(tokenType))
           )
+        } catch (err: any) {
+          // Token acquisition is a read-only GET (action=query&meta=tokens):
+          // safe to retry on transient transport errors even when write retry is disabled.
+          if (isRetryableTransportError(err)) {
+            throw Object.assign(
+              new WikiSaikouError(
+                WikiSaikouErrorCode.HTTP_ERROR,
+                'Network/transport error while fetching token',
+                err
+              ),
+              { __wikiSaikouTokenFetchError: true }
+            )
+          }
+          throw err
+        }
 
+        try {
           const ctx = await this.post<MwApiResponse<T>>(
             this.attachTokenToBody(body, tokenName, token),
             deepMerge<WikiSaikouRequestOptions>(fexiosOptions || {}, {
@@ -406,8 +464,10 @@ export class WikiSaikouCore {
         shouldRetry: (error) =>
           WikiSaikouError.isBadTokenError(error) ||
           (error as any)?.ok === false ||
-          isRetryableTransportError(error) ||
-          isRetryableMediaWikiError(error),
+          isRetryableMediaWikiError(error) ||
+          ((Boolean((error as any)?.__wikiSaikouTokenFetchError) ||
+            allowPostTransportRetry) &&
+            isRetryableTransportError(error)),
       }
     ).catch((err) => {
       // Map exhausted retry of retryable errors into SDK-level error

@@ -42,6 +42,11 @@ export interface MediaWikiRestApiConfig {
    * Default delay in milliseconds (or backoff callback) between retry attempts.
    */
   retryDelay?: RetryDelayOption
+  /**
+   * Allow retrying non-idempotent REST writes (`POST`/`PUT`/`PATCH`/`DELETE`) on ambiguous transport failures.
+   * @default false
+   */
+  retryOnTransportError?: boolean
 }
 
 export type MediaWikiRestApiInitConfig = MediaWikiRestApiConfig
@@ -51,6 +56,7 @@ export type MediaWikiRestRequestOptions = Partial<
     pathParams?: Record<string, string>
     retry?: number
     retryDelay?: RetryDelayOption
+    retryOnTransportError?: boolean
   }
 >
 
@@ -81,6 +87,7 @@ export class MediaWikiRestApi {
       fexiosConfigs,
       retry: config.retry ?? 1,
       retryDelay: config.retryDelay ?? defaultTransportRetryDelay,
+      retryOnTransportError: config.retryOnTransportError ?? false,
     }
 
     // Prefer creating a dedicated plain Fexios instance for REST (no MW-specific hooks).
@@ -122,6 +129,7 @@ export class MediaWikiRestApi {
       pathParams,
       retry = this.config.retry,
       retryDelay = this.config.retryDelay,
+      retryOnTransportError = this.config.retryOnTransportError,
       ...restOptions
     } = options || {}
     const finalPath = this.resolvePath(path, pathParams)
@@ -161,7 +169,10 @@ export class MediaWikiRestApi {
     if (!Number.isFinite(retry)) {
       throw new RangeError('retry must be a finite number')
     }
-    if (retry <= 1) {
+    const allowTransportRetry =
+      Boolean(retryOnTransportError) ||
+      ['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())
+    if (!allowTransportRetry || retry <= 1) {
       return await doRequest()
     }
     return await useRetry(doRequest, {

@@ -145,15 +145,16 @@ interface WikiSaikouConfig {
 
 - `post<T = any>(body: MwApiParams | URLSearchParams | FormData, options?: WikiSaikouRequestOptions): Promise<FexiosFinalContext<MwApiResponse<T>>>`
   - Performs a POST request. Body and query are normalized to API-friendly formats.
-  - Supports `retry` (default `1`, or `config.retry`) and `retryDelay` for transient network/gateway errors.
-- `postWithToken<T = any>(tokenType: MwTokenName, body: MwApiParams | URLSearchParams | FormData, options?: { tokenName?: string; retry?: number; retryDelay?: number | ((error: Error, retryCount: number) => number); noCache?: boolean; fexiosOptions?: Partial<FexiosRequestOptions> }): Promise<FexiosFinalContext<MwApiResponse<T>>>`
+  - Supports `retry` (default `1`, or `config.retry`), `retryDelay`, and `retryOnTransportError` (default `false`; read-only `action=query` POSTs always retry transport errors when `retry > 1`).
+- `postWithToken<T = any>(tokenType: MwTokenName, body: MwApiParams | URLSearchParams | FormData, options?: { tokenName?: string; retry?: number; retryDelay?: number | ((error: Error, retryCount: number) => number); retryOnTransportError?: boolean; noCache?: boolean; fexiosOptions?: Partial<FexiosRequestOptions> }): Promise<FexiosFinalContext<MwApiResponse<T>>>`
   - Performs a POST request with a token.
   - `tokenType`: The type of token to use.
   - `body`: The body of the request.
   - `options`: The options for the request.
     - `tokenName`: The name of the token to use.
-    - `retry`: The number of times to retry the request (handles both token refresh and transient network/gateway errors).
+    - `retry`: The number of times to retry the request (handles token refresh, `maxlag`/`ratelimited`, and token-fetch transport errors; pass `retryOnTransportError: true` to also retry non-idempotent POST writes on ambiguous transport errors).
     - `retryDelay`: Delay in milliseconds (or backoff callback) between retry attempts.
+    - `retryOnTransportError`: Allow retrying non-idempotent POST writes on ambiguous transport/gateway failures (`default: false`).
     - `noCache`: Whether to bypass the cached token.
   - This method will manage the token cache and retry logic automatically.
 

@@ -66,7 +66,7 @@ describe('MediaWikiApi transport retry', () => {
     const { data } = await api.postWithToken(
       'csrf',
       { action: 'edit', title: 'RetryPage', text: 'ok' },
-      { retry: 3, retryDelay: 0 }
+      { retry: 3, retryDelay: 0, retryOnTransportError: true }
     )
     expect(editAttempts).to.equal(3)
     expect(data.edit.result).to.equal('Success')
@@ -130,7 +130,7 @@ describe('MediaWikiApi transport retry', () => {
       api.postWithToken(
         'csrf',
         { action: 'edit', title: 'FailPage', text: 'nope' },
-        { retry: 3, retryDelay: 0 }
+        { retry: 3, retryDelay: 0, retryOnTransportError: true }
       )
     ).rejects.toMatchObject({
       name: 'WikiSaikouError',
@@ -230,11 +230,35 @@ describe('MediaWikiApi transport retry', () => {
     expect(getRes.data.query.general).to.be.an('object')
 
     const postRes = await api.post(
-      { action: 'parse', title: 'Retry', text: 'hi' },
+      { action: 'query', meta: 'siteinfo' },
       { retry: 2, retryDelay: 0 }
     )
     expect(postAttempts).to.equal(2)
-    expect(postRes.data.parse.title).to.equal('Retry')
+    expect(postRes.data.query.general).to.be.an('object')
+
+    // Non-idempotent POST writes do not retry transport errors unless opted in
+    let writeAttempts = 0
+    const writeFlakyFetch: typeof fetch = async (input, init) => {
+      const action = await getActionFromFetchArgs(input, init)
+      if (action === 'edit') {
+        writeAttempts++
+        throw new TypeError('fetch failed')
+      }
+      return mockServer.mockFetch(input as any, init)
+    }
+    const writeApi = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: { fetch: writeFlakyFetch },
+    })
+    await writeApi.login(MOCK_MW_USERNAME, MOCK_MW_PASSWORD)
+    await expect(
+      writeApi.postWithToken(
+        'csrf',
+        { action: 'edit', title: 'NoDup', text: 'x' },
+        { retry: 3, retryDelay: 0 }
+      )
+    ).rejects.toMatchObject({ code: WikiSaikouErrorCode.HTTP_ERROR })
+    expect(writeAttempts).to.equal(1)
   })
 
   it('deduplicates concurrent getToken and reloginIfNeeded requests', async () => {
@@ -383,6 +407,7 @@ describe('MediaWikiApi transport retry', () => {
       fexiosConfigs: { fetch: formDataFetch },
       retry: 3,
       retryDelay: 0,
+      retryOnTransportError: true,
     })
     await api.login(MOCK_MW_USERNAME, MOCK_MW_PASSWORD)
 
