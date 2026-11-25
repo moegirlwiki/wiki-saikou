@@ -158,6 +158,9 @@ export class MediaWikiRestApi {
         method,
       })
 
+    if (!Number.isFinite(retry)) {
+      throw new RangeError('retry must be a finite number')
+    }
     if (retry <= 1) {
       return await doRequest()
     }

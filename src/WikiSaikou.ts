@@ -147,6 +147,9 @@ export class WikiSaikouCore {
     retry = this.config.retry,
     retryDelay: RetryDelayOption = this.config.retryDelay
   ): Promise<FexiosFinalContext<MwApiResponse<T>>> {
+    if (!Number.isFinite(retry)) {
+      return Promise.reject(new RangeError('retry must be a finite number'))
+    }
     if (retry <= 1) {
       return this.runRequestWithApiErrorMapping(doRequest)
     }
@@ -338,6 +341,9 @@ export class WikiSaikouCore {
       fexiosOptions,
     } = options || {}
 
+    if (!Number.isFinite(retry)) {
+      throw new RangeError('retry must be a finite number')
+    }
     if (retry < 1) {
       throw new WikiSaikouError(
         WikiSaikouErrorCode.TOKEN_RETRY_LIMIT_EXCEEDED,
@@ -366,7 +372,10 @@ export class WikiSaikouCore {
           )
 
           if (WikiSaikouError.isBadTokenError(ctx.data)) {
-            throw ctx
+            throw new MediaWikiApiError(
+              WikiSaikouError.extractMediaWikiApiErrors(ctx.data),
+              ctx
+            )
           }
           return ctx
         } catch (err: any) {

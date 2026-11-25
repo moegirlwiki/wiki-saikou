@@ -416,4 +416,53 @@ describe('MediaWikiApi transport retry', () => {
     expect(restAttempts).to.equal(3)
     expect(restRes.data.ok).to.equal(true)
   })
+
+  it('rejects non-finite retry, skips non-network TypeError, and passes Error to retryDelay on badtoken', async () => {
+    const mockServer = createMockServer()
+    let nonNetworkAttempts = 0
+
+    const nonNetworkFetch: typeof fetch = async () => {
+      nonNetworkAttempts++
+      throw new TypeError('Cannot read properties of undefined')
+    }
+
+    const api = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: { fetch: nonNetworkFetch },
+    })
+
+    await expect(
+      api.get({ action: 'query', meta: 'siteinfo' }, { retry: Infinity })
+    ).rejects.toBeInstanceOf(RangeError)
+
+    await expect(
+      api.get({ action: 'query', meta: 'siteinfo' }, { retry: 3, retryDelay: 0 })
+    ).rejects.toMatchObject({ name: 'FexiosError' })
+    expect(nonNetworkAttempts).to.equal(1)
+
+    const seenErrors: unknown[] = []
+    const apiBadToken = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: { fetch: mockServer.mockFetch },
+    })
+    mockServer.enableBadtokenTestMode()
+    try {
+      await apiBadToken.login(MOCK_MW_USERNAME, MOCK_MW_PASSWORD)
+      await apiBadToken.postWithToken(
+        'csrf',
+        { action: 'testBadtoken' },
+        {
+          retry: 3,
+          retryDelay: (err) => {
+            seenErrors.push(err)
+            return 0
+          },
+        }
+      )
+      expect(seenErrors).to.have.length(1)
+      expect(seenErrors[0]).to.be.instanceOf(Error)
+    } finally {
+      mockServer.disableBadtokenTestMode()
+    }
+  })
 })

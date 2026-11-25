@@ -138,20 +138,23 @@ interface WikiSaikouConfig {
 
 ### Core requests
 
-- `get<T = any>(query: MwApiParams, options?: Partial<FexiosRequestOptions>): Promise<FexiosFinalContext<MwApiResponse<T>>>`
+- `get<T = any>(query: MwApiParams, options?: WikiSaikouRequestOptions): Promise<FexiosFinalContext<MwApiResponse<T>>>`
 
   - Performs a GET request. `query` will be merged with `config.defaultParams`.
+  - Supports `retry` (default `1`, or `config.retry`) and `retryDelay` for transient network/gateway errors.
 
-- `post<T = any>(body: MwApiParams | URLSearchParams | FormData, options?: Partial<FexiosRequestOptions>): Promise<FexiosFinalContext<MwApiResponse<T>>>`
+- `post<T = any>(body: MwApiParams | URLSearchParams | FormData, options?: WikiSaikouRequestOptions): Promise<FexiosFinalContext<MwApiResponse<T>>>`
   - Performs a POST request. Body and query are normalized to API-friendly formats.
-- `postWithToken<T = any>(tokenType: MwTokenName, body: MwApiParams, options?: { tokenName?: string; retry?: number; noCache?: boolean }): Promise<FexiosFinalContext<MwApiResponse<T>>>`
+  - Supports `retry` (default `1`, or `config.retry`) and `retryDelay` for transient network/gateway errors.
+- `postWithToken<T = any>(tokenType: MwTokenName, body: MwApiParams | URLSearchParams | FormData, options?: { tokenName?: string; retry?: number; retryDelay?: number | ((error: Error, retryCount: number) => number); noCache?: boolean; fexiosOptions?: Partial<FexiosRequestOptions> }): Promise<FexiosFinalContext<MwApiResponse<T>>>`
   - Performs a POST request with a token.
   - `tokenType`: The type of token to use.
   - `body`: The body of the request.
   - `options`: The options for the request.
     - `tokenName`: The name of the token to use.
-    - `retry`: The number of times to retry the request.
-    - `noCache`: Whether to cache the token.
+    - `retry`: The number of times to retry the request (handles both token refresh and transient network/gateway errors).
+    - `retryDelay`: Delay in milliseconds (or backoff callback) between retry attempts.
+    - `noCache`: Whether to bypass the cached token.
   - This method will manage the token cache and retry logic automatically.
 
 ### Authentication

@@ -21,6 +21,21 @@ const TRANSIENT_ERROR_CODES = new Set([
   'UND_ERR_SOCKET',
 ])
 
+const NETWORK_TYPE_ERROR_RE =
+  /fetch|network|load failed|connection|socket|timed?\s*out/i
+
+const isRetryableStatus = (status: unknown): boolean =>
+  status === 429 || (typeof status === 'number' && status >= 500)
+
+const extractResponseStatus = (error: unknown): number | undefined => {
+  const candidates = [
+    (error as any)?.response?.status,
+    (error as any)?.context?.response?.status,
+    (error as any)?.context?.rawResponse?.status,
+  ]
+  return candidates.find((s): s is number => typeof s === 'number')
+}
+
 export const isRetryableTransportError = (error: unknown): boolean => {
   if (!error || MediaWikiApiError.is(error)) {
     return false
@@ -31,33 +46,26 @@ export const isRetryableTransportError = (error: unknown): boolean => {
     }
     return error.cause ? isRetryableTransportError(error.cause) : true
   }
+  const status = extractResponseStatus(error)
+  if (status !== undefined) {
+    return isRetryableStatus(status)
+  }
   if (FexiosResponseError.is(error)) {
-    const status = error.response?.status
-    return status === 429 || (typeof status === 'number' && status >= 500)
+    return isRetryableStatus(error.response?.status)
   }
   if (FexiosError.is(error)) {
-    if (
-      error.code === FexiosErrorCodes.NETWORK_ERROR ||
+    if (error.code === FexiosErrorCodes.NETWORK_ERROR) {
+      if (NETWORK_TYPE_ERROR_RE.test(error.message)) {
+        return true
+      }
+      return error.cause ? isRetryableTransportError(error.cause) : false
+    }
+    return (
       error.code === FexiosErrorCodes.TIMEOUT ||
       error.code === FexiosErrorCodes.BODY_TRANSFORM_ERROR
-    ) {
-      return true
-    }
-    const ctxStatus = (error.context as { response?: { status?: number } })
-      ?.response?.status
-    if (ctxStatus === 429 || (typeof ctxStatus === 'number' && ctxStatus >= 500)) {
-      return true
-    }
+    )
   }
-  const responseStatus = (error as { response?: { status?: number } })
-    ?.response?.status
-  if (
-    responseStatus === 429 ||
-    (typeof responseStatus === 'number' && responseStatus >= 500)
-  ) {
-    return true
-  }
-  if (error instanceof TypeError) {
+  if (error instanceof TypeError && NETWORK_TYPE_ERROR_RE.test(error.message)) {
     return true
   }
   const errCode = (error as { code?: unknown; cause?: { code?: unknown } })
@@ -146,6 +154,9 @@ export const useRetry = async <T>(
     onRetry = noop,
     shouldRetry = () => true,
   } = options
+  if (!Number.isFinite(retry)) {
+    throw new RangeError('retry must be a finite number')
+  }
   let lastError: unknown
   do {
     try {
