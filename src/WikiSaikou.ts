@@ -296,18 +296,28 @@ export class WikiSaikouCore {
   get tokens() {
     return this.request._tokens
   }
-  async fetchTokens(types: MwTokenName[] = ['csrf']) {
+  async fetchTokens(
+    types: MwTokenName[] = ['csrf'],
+    options?: WikiSaikouRequestOptions
+  ) {
     this.config.fexiosConfigs.credentials = 'include'
     await this.get<{
       query: { tokens: Record<MwTokenName, string> }
-    }>({
-      action: 'query',
-      meta: 'tokens',
-      type: types,
-    })
+    }>(
+      {
+        action: 'query',
+        meta: 'tokens',
+        type: types,
+      },
+      options
+    )
     return this.tokens
   }
-  async getToken(type: MwTokenName = 'csrf', noCache = false) {
+  async getToken(
+    type: MwTokenName = 'csrf',
+    noCache = false,
+    options?: WikiSaikouRequestOptions
+  ) {
     if (!noCache) {
       const cached = this.tokens.get(type)
       if (cached) {
@@ -320,7 +330,7 @@ export class WikiSaikouCore {
     }
 
     this.tokens.delete(type)
-    const pending = this.fetchTokens([type])
+    const pending = this.fetchTokens([type], options)
       .then(() => this.tokens.get(type)!)
       .finally(() => {
         if (this.inflightTokenRequests.get(type) === pending) {
@@ -400,7 +410,8 @@ export class WikiSaikouCore {
         try {
           token = await this.getToken(
             tokenType,
-            shouldRefreshToken || (attemptIndex > 0 && !this.tokens.get(tokenType))
+            shouldRefreshToken || (attemptIndex > 0 && !this.tokens.get(tokenType)),
+            { retry: 1 }
           )
         } catch (err: any) {
           // Token acquisition is a read-only GET (action=query&meta=tokens):

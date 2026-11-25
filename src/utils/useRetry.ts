@@ -36,15 +36,19 @@ const extractResponseStatus = (error: unknown): number | undefined => {
   return candidates.find((s): s is number => typeof s === 'number')
 }
 
-export const isRetryableTransportError = (error: unknown): boolean => {
-  if (!error || MediaWikiApiError.is(error)) {
+export const isRetryableTransportError = (
+  error: unknown,
+  visited = new Set<unknown>()
+): boolean => {
+  if (!error || MediaWikiApiError.is(error) || visited.has(error)) {
     return false
   }
+  visited.add(error)
   if (WikiSaikouError.is(error)) {
     if (error.code !== WikiSaikouErrorCode.HTTP_ERROR) {
       return false
     }
-    return error.cause ? isRetryableTransportError(error.cause) : true
+    return error.cause ? isRetryableTransportError(error.cause, visited) : true
   }
   const status = extractResponseStatus(error)
   if (status !== undefined) {
@@ -58,7 +62,7 @@ export const isRetryableTransportError = (error: unknown): boolean => {
       if (NETWORK_TYPE_ERROR_RE.test(error.message)) {
         return true
       }
-      return error.cause ? isRetryableTransportError(error.cause) : false
+      return error.cause ? isRetryableTransportError(error.cause, visited) : false
     }
     return (
       error.code === FexiosErrorCodes.TIMEOUT ||
@@ -74,8 +78,8 @@ export const isRetryableTransportError = (error: unknown): boolean => {
     return true
   }
   const cause = (error as { cause?: unknown })?.cause
-  return cause !== undefined && cause !== error
-    ? isRetryableTransportError(cause)
+  return cause !== undefined
+    ? isRetryableTransportError(cause, visited)
     : false
 }
 
@@ -85,13 +89,17 @@ export type RetryDelayOption =
   | number
   | ((error: Error, retryCount: number) => number)
 
-export const isRetryableMediaWikiError = (error: unknown): boolean => {
-  if (!error) return false
+export const isRetryableMediaWikiError = (
+  error: unknown,
+  visited = new Set<unknown>()
+): boolean => {
+  if (!error || visited.has(error)) return false
+  visited.add(error)
   if (MediaWikiApiError.is(error)) {
     return error.errors.some((e) => RETRYABLE_MW_ERROR_CODES.has(e.code))
   }
   if (WikiSaikouError.is(error) && error.cause) {
-    return isRetryableMediaWikiError(error.cause)
+    return isRetryableMediaWikiError(error.cause, visited)
   }
   return false
 }
@@ -171,7 +179,7 @@ export const useRetry = async <T>(
             typeof retryDelay === 'function'
               ? retryDelay(err, retryCount)
               : retryDelay
-          if (delay > 0) {
+          if (Number.isFinite(delay) && delay > 0) {
             await sleep(delay)
           }
         }
