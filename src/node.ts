@@ -23,6 +23,7 @@ export { CookieJar, CookieJarItem }
  */
 export class MediaWikiApi extends WikiSaikouCore {
   private autoReloginEnabled = false
+  private inflightRelogin?: Promise<void>
   private loginCredentials?: {
     lgname: string
     lgpassword: string
@@ -156,15 +157,19 @@ export class MediaWikiApi extends WikiSaikouCore {
 
   private async reloginIfNeeded() {
     if (!this.canAutoRelogin() || !this.loginCredentials) return
-    await this.login(
-      this.loginCredentials.lgname,
-      this.loginCredentials.lgpassword,
-      void 0,
-      {
-        autoRelogin: true,
-        autoReloginRetries: this.loginCredentials.autoReloginRetries,
-      }
-    )
+    if (this.inflightRelogin) {
+      return this.inflightRelogin
+    }
+    const { lgname, lgpassword, autoReloginRetries } = this.loginCredentials
+    this.inflightRelogin = this.login(lgname, lgpassword, void 0, {
+      autoRelogin: true,
+      autoReloginRetries,
+    })
+      .then(() => undefined)
+      .finally(() => {
+        this.inflightRelogin = undefined
+      })
+    return this.inflightRelogin
   }
 
   get cookieJar() {

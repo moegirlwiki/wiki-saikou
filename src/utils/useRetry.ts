@@ -71,12 +71,61 @@ export const isRetryableTransportError = (error: unknown): boolean => {
     : false
 }
 
+const RETRYABLE_MW_ERROR_CODES = new Set(['maxlag', 'ratelimited'])
+
+export type RetryDelayOption =
+  | number
+  | ((error: Error, retryCount: number) => number)
+
+export const isRetryableMediaWikiError = (error: unknown): boolean => {
+  if (!error) return false
+  if (MediaWikiApiError.is(error)) {
+    return error.errors.some((e) => RETRYABLE_MW_ERROR_CODES.has(e.code))
+  }
+  if (WikiSaikouError.is(error) && error.cause) {
+    return isRetryableMediaWikiError(error.cause)
+  }
+  return false
+}
+
+export const isRetryableRequestError = (error: unknown): boolean =>
+  isRetryableTransportError(error) || isRetryableMediaWikiError(error)
+
+export const parseRetryAfterMs = (error: unknown): number | undefined => {
+  const candidates = [
+    (error as any)?.response?.headers,
+    (error as any)?.headers,
+    (error as any)?.cause?.response?.headers,
+    (error as any)?.cause?.headers,
+  ]
+  for (const headers of candidates) {
+    const raw =
+      typeof headers?.get === 'function'
+        ? headers.get('retry-after')
+        : headers?.['retry-after'] ?? headers?.['Retry-After']
+    if (raw == null || raw === '') continue
+    const seconds = Number(raw)
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return Math.min(60000, Math.round(seconds * 1000))
+    }
+    const dateMs = Date.parse(String(raw))
+    if (Number.isFinite(dateMs)) {
+      return Math.min(60000, Math.max(0, dateMs - Date.now()))
+    }
+  }
+  return undefined
+}
+
 export const defaultTransportRetryDelay = (
   error: Error,
   retryCount: number
 ): number => {
-  if (!isRetryableTransportError(error)) {
+  if (!isRetryableRequestError(error)) {
     return 0
+  }
+  const retryAfter = parseRetryAfterMs(error)
+  if (retryAfter !== undefined) {
+    return retryAfter
   }
   return Math.min(5000, 100 * 2 ** retryCount)
 }

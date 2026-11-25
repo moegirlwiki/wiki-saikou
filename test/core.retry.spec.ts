@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
   MediaWikiApi,
   MediaWikiApiError,
+  MediaWikiRestApi,
   WikiSaikouError,
   WikiSaikouErrorCode,
 } from '@/node.js'
+import { parseRetryAfterMs } from '../src/utils/useRetry.js'
 import {
   MOCK_API_ENDPOINT_URL,
   MOCK_MW_PASSWORD,
@@ -233,5 +235,185 @@ describe('MediaWikiApi transport retry', () => {
     )
     expect(postAttempts).to.equal(2)
     expect(postRes.data.parse.title).to.equal('Retry')
+  })
+
+  it('deduplicates concurrent getToken and reloginIfNeeded requests', async () => {
+    const mockServer = createMockServer()
+    let tokenFetches = 0
+    let loginPosts = 0
+    let assertFailActive = false
+
+    const countingFetch: typeof fetch = async (input, init) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      const action = await getActionFromFetchArgs(input, init)
+      if (url.includes('meta=tokens') && !url.includes('type=login')) {
+        tokenFetches++
+      }
+      if (action === 'login') {
+        loginPosts++
+      }
+      if (assertFailActive && getMethodFromFetchArgs(input, init) === 'GET' && url.includes('meta=siteinfo')) {
+        assertFailActive = false
+        return new Response(
+          JSON.stringify({
+            errors: [{ code: 'assertuserfailed', text: 'Assertion failed' }],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        )
+      }
+      return mockServer.mockFetch(input as any, init)
+    }
+
+    const api = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: { fetch: countingFetch },
+    })
+
+    await api.login(MOCK_MW_USERNAME, MOCK_MW_PASSWORD)
+    expect(loginPosts).to.equal(1)
+
+    const [t1, t2, t3] = await Promise.all([
+      api.getToken('csrf'),
+      api.getToken('csrf'),
+      api.getToken('csrf'),
+    ])
+    expect(t1).to.equal(t2)
+    expect(t2).to.equal(t3)
+    expect(tokenFetches).to.equal(1)
+
+    // Trigger concurrent assertuserfailed responses
+    let siteinfoCalls = 0
+    const concurrentFetch: typeof fetch = async (input, init) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      const action = await getActionFromFetchArgs(input, init)
+      if (action === 'login') {
+        loginPosts++
+      }
+      if (url.includes('meta=siteinfo')) {
+        siteinfoCalls++
+        if (siteinfoCalls <= 3) {
+          return new Response(
+            JSON.stringify({
+              errors: [{ code: 'assertuserfailed', text: 'Assertion failed' }],
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          )
+        }
+      }
+      return mockServer.mockFetch(input as any, init)
+    }
+
+    const api2 = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: { fetch: concurrentFetch },
+    })
+    loginPosts = 0
+    await api2.login(MOCK_MW_USERNAME, MOCK_MW_PASSWORD)
+    expect(loginPosts).to.equal(1)
+
+    await Promise.all([
+      api2.get({ action: 'query', meta: 'siteinfo' }),
+      api2.get({ action: 'query', meta: 'siteinfo' }),
+      api2.get({ action: 'query', meta: 'siteinfo' }),
+    ])
+    // Only 1 extra login for all 3 concurrent assertuserfailed responses
+    expect(loginPosts).to.equal(2)
+  })
+
+  it('retries maxlag/ratelimited errors and parses Retry-After header', async () => {
+    const mockServer = createMockServer()
+    let maxlagAttempts = 0
+
+    const maxlagFetch: typeof fetch = async (input, init) => {
+      const action = await getActionFromFetchArgs(input, init)
+      if (action === 'edit') {
+        maxlagAttempts++
+        if (maxlagAttempts < 3) {
+          return new Response(
+            JSON.stringify({
+              errors: [{ code: 'maxlag', text: 'Waiting for replication lag' }],
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          )
+        }
+      }
+      return mockServer.mockFetch(input as any, init)
+    }
+
+    const api = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: { fetch: maxlagFetch },
+      throwOnApiError: true,
+      retry: 3,
+      retryDelay: 0,
+    })
+    await api.login(MOCK_MW_USERNAME, MOCK_MW_PASSWORD)
+
+    const { data } = await api.postWithToken('csrf', {
+      action: 'edit',
+      title: 'MaxlagPage',
+      text: 'ok',
+    })
+    expect(maxlagAttempts).to.equal(3)
+    expect(data.edit.result).to.equal('Success')
+
+    const errWithHeader = {
+      response: { headers: new Headers({ 'Retry-After': '2' }) },
+    }
+    expect(parseRetryAfterMs(errWithHeader)).to.equal(2000)
+  })
+
+  it('postWithToken supports FormData body and MediaWikiRestApi supports retry', async () => {
+    const mockServer = createMockServer()
+    let editAttempts = 0
+
+    const formDataFetch: typeof fetch = async (input, init) => {
+      const action = await getActionFromFetchArgs(input, init)
+      if (action === 'edit') {
+        editAttempts++
+        if (editAttempts === 1) {
+          throw new TypeError('fetch failed')
+        }
+      }
+      return mockServer.mockFetch(input as any, init)
+    }
+
+    const api = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: { fetch: formDataFetch },
+      retry: 3,
+      retryDelay: 0,
+    })
+    await api.login(MOCK_MW_USERNAME, MOCK_MW_PASSWORD)
+
+    const form = new FormData()
+    form.set('action', 'edit')
+    form.set('title', 'FormDataPage')
+    form.set('text', 'hello')
+
+    const { data } = await api.postWithToken('csrf', form)
+    expect(editAttempts).to.equal(2)
+    expect(data.edit.result).to.equal('Success')
+    expect(form.has('token')).to.equal(false)
+
+    let restAttempts = 0
+    const restFlakyFetch: typeof fetch = async (input, init) => {
+      restAttempts++
+      if (restAttempts < 3) {
+        throw new TypeError('fetch failed')
+      }
+      return mockServer.mockFetch(input as any, init)
+    }
+    const rest = new MediaWikiRestApi({
+      baseURL: 'https://wiki-saikou.test/rest.php/',
+      fexiosConfigs: { fetch: restFlakyFetch },
+      retry: 3,
+      retryDelay: 0,
+    })
+    const restRes = await rest.get('/v1/page/{title}', {
+      pathParams: { title: 'Main_Page' },
+    })
+    expect(restAttempts).to.equal(3)
+    expect(restRes.data.ok).to.equal(true)
   })
 })

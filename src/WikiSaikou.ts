@@ -9,7 +9,10 @@ import { resolveLegacyCtor } from './utils/resolveLegacyCtor.js'
 import { deepMerge } from './utils/deepMerge.js'
 import {
   defaultTransportRetryDelay,
+  isRetryableMediaWikiError,
+  isRetryableRequestError,
   isRetryableTransportError,
+  type RetryDelayOption,
   useRetry,
 } from './utils/useRetry.js'
 import {
@@ -51,6 +54,15 @@ export interface WikiSaikouConfig {
    * @default false
    */
   throwOnApiError: boolean
+  /**
+   * Default maximum attempts for transient network/gateway errors (and `maxlag`/`ratelimited` when `throwOnApiError=true`).
+   * @default 1
+   */
+  retry?: number
+  /**
+   * Default delay in milliseconds (or backoff callback) between retry attempts.
+   */
+  retryDelay?: RetryDelayOption
 }
 
 export type WikiSaikouInitConfig = Omit<
@@ -83,6 +95,7 @@ export class WikiSaikouCore {
   readonly config: Required<WikiSaikouConfig>
   readonly version = import.meta.env.__VERSION__
   readonly request: FexiosSaikou
+  private inflightTokenRequests = new Map<MwTokenName, Promise<string>>()
 
   static INIT_DEFAULT_PARAMS: MwApiParams = {
     action: 'query',
@@ -98,6 +111,8 @@ export class WikiSaikouCore {
     },
     defaultParams: this.INIT_DEFAULT_PARAMS,
     throwOnApiError: false,
+    retry: 1,
+    retryDelay: defaultTransportRetryDelay,
   }
 
   /** @deprecated Use `new MediaWikiApi(config)` instead */
@@ -129,10 +144,8 @@ export class WikiSaikouCore {
   /** Base methods encapsulation */
   private runWithTransportRetry<T = any>(
     doRequest: () => Promise<FexiosFinalContext<MwApiResponse<T>>>,
-    retry = 1,
-    retryDelay:
-      | number
-      | ((error: Error, retryCount: number) => number) = defaultTransportRetryDelay
+    retry = this.config.retry,
+    retryDelay: RetryDelayOption = this.config.retryDelay
   ): Promise<FexiosFinalContext<MwApiResponse<T>>> {
     if (retry <= 1) {
       return this.runRequestWithApiErrorMapping(doRequest)
@@ -140,7 +153,7 @@ export class WikiSaikouCore {
     return useRetry(() => this.runRequestWithApiErrorMapping(doRequest), {
       retry,
       retryDelay,
-      shouldRetry: (error) => isRetryableTransportError(error),
+      shouldRetry: (error) => isRetryableRequestError(error),
     })
   }
 
@@ -148,7 +161,11 @@ export class WikiSaikouCore {
     query: MwApiParams,
     options?: WikiSaikouRequestOptions
   ): Promise<FexiosFinalContext<MwApiResponse<T>>> {
-    const { retry = 1, retryDelay, ...fexiosOptions } = options || {}
+    const {
+      retry = this.config.retry,
+      retryDelay = this.config.retryDelay,
+      ...fexiosOptions
+    } = options || {}
     const payload = deepMerge<Partial<FexiosRequestOptions>>(
       {},
       this.config.fexiosConfigs as Partial<FexiosRequestOptions>,
@@ -170,7 +187,11 @@ export class WikiSaikouCore {
     data: MwApiParams | URLSearchParams | FormData,
     options?: WikiSaikouRequestOptions
   ): Promise<FexiosFinalContext<MwApiResponse<T>>> {
-    const { retry = 1, retryDelay, ...fexiosOptions } = options || {}
+    const {
+      retry = this.config.retry,
+      retryDelay = this.config.retryDelay,
+      ...fexiosOptions
+    } = options || {}
     return this.runWithTransportRetry(
       () =>
         this.request.post<MwApiResponse<T>>(
@@ -247,32 +268,72 @@ export class WikiSaikouCore {
     return this.tokens
   }
   async getToken(type: MwTokenName = 'csrf', noCache = false) {
-    if (!this.tokens.get(type) || noCache) {
-      this.tokens.delete(type)
-      await this.fetchTokens([type])
+    if (!noCache) {
+      const cached = this.tokens.get(type)
+      if (cached) {
+        return cached
+      }
+      const inflight = this.inflightTokenRequests.get(type)
+      if (inflight) {
+        return inflight
+      }
     }
-    return this.tokens.get(type)!
+
+    this.tokens.delete(type)
+    const pending = this.fetchTokens([type])
+      .then(() => this.tokens.get(type)!)
+      .finally(() => {
+        if (this.inflightTokenRequests.get(type) === pending) {
+          this.inflightTokenRequests.delete(type)
+        }
+      })
+    this.inflightTokenRequests.set(type, pending)
+    return pending
   }
   badToken(type: MwTokenName) {
     this.tokens.delete(type)
     return this.tokens
   }
 
+  private attachTokenToBody(
+    body: MwApiParams | URLSearchParams | FormData,
+    tokenName: string,
+    token: string
+  ): MwApiParams | URLSearchParams | FormData {
+    if (typeof FormData !== 'undefined' && body instanceof FormData) {
+      const copy = new FormData()
+      body.forEach((value, key) => {
+        copy.append(key, value)
+      })
+      copy.set(tokenName, token)
+      return copy
+    }
+    if (body instanceof URLSearchParams) {
+      const copy = new URLSearchParams(body)
+      copy.set(tokenName, token)
+      return copy
+    }
+    return {
+      [tokenName]: token,
+      ...body,
+    }
+  }
+
   async postWithToken<T = any>(
     tokenType: MwTokenName,
-    body: MwApiParams,
+    body: MwApiParams | URLSearchParams | FormData,
     options?: {
       tokenName?: string
       retry?: number
-      retryDelay?: number | ((error: Error, retryCount: number) => number)
+      retryDelay?: RetryDelayOption
       noCache?: boolean
       fexiosOptions?: Partial<FexiosRequestOptions>
     }
   ): Promise<FexiosFinalContext<MwApiResponse<T>>> {
     const {
       tokenName = 'token',
-      retry = 3,
-      retryDelay = defaultTransportRetryDelay,
+      retry = this.config.retry > 1 ? this.config.retry : 3,
+      retryDelay = this.config.retryDelay,
       noCache = false,
       fexiosOptions,
     } = options || {}
@@ -295,10 +356,7 @@ export class WikiSaikouCore {
           )
 
           const ctx = await this.post<MwApiResponse<T>>(
-            {
-              [tokenName]: token,
-              ...body,
-            },
+            this.attachTokenToBody(body, tokenName, token),
             deepMerge<WikiSaikouRequestOptions>(fexiosOptions || {}, {
               retry: 1,
               customEnv: {
@@ -339,7 +397,8 @@ export class WikiSaikouCore {
         shouldRetry: (error) =>
           WikiSaikouError.isBadTokenError(error) ||
           (error as any)?.ok === false ||
-          isRetryableTransportError(error),
+          isRetryableTransportError(error) ||
+          isRetryableMediaWikiError(error),
       }
     ).catch((err) => {
       // Map exhausted retry of retryable errors into SDK-level error

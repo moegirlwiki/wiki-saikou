@@ -24,7 +24,7 @@ export class WikiSaikouError extends Error {
   constructor(
     readonly code: WikiSaikouErrorCode,
     readonly message: string = '',
-    readonly cause?: FexiosFinalContext
+    readonly cause?: unknown
   ) {
     super()
   }

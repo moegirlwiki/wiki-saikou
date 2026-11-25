@@ -6,6 +6,12 @@ import type {
 } from 'fexios'
 import { deepMerge, Fexios } from 'fexios'
 import { WikiSaikouError, WikiSaikouErrorCode } from './models/errors.js'
+import {
+  defaultTransportRetryDelay,
+  isRetryableTransportError,
+  type RetryDelayOption,
+  useRetry,
+} from './utils/useRetry.js'
 
 export interface MediaWikiRestApiConfig {
   /**
@@ -27,12 +33,25 @@ export interface MediaWikiRestApiConfig {
    * - If you explicitly set `responseType` here (even `undefined`), it will be honored.
    */
   fexiosConfigs?: Partial<FexiosConfigs>
+  /**
+   * Default maximum attempts for transient network/gateway errors.
+   * @default 1
+   */
+  retry?: number
+  /**
+   * Default delay in milliseconds (or backoff callback) between retry attempts.
+   */
+  retryDelay?: RetryDelayOption
 }
 
 export type MediaWikiRestApiInitConfig = MediaWikiRestApiConfig
 
 export type MediaWikiRestRequestOptions = Partial<
-  FexiosRequestOptions & { pathParams?: Record<string, string> }
+  FexiosRequestOptions & {
+    pathParams?: Record<string, string>
+    retry?: number
+    retryDelay?: RetryDelayOption
+  }
 >
 
 /**
@@ -60,6 +79,8 @@ export class MediaWikiRestApi {
     this.config = {
       baseURL: normalizedRestEndpoint,
       fexiosConfigs,
+      retry: config.retry ?? 1,
+      retryDelay: config.retryDelay ?? defaultTransportRetryDelay,
     }
 
     // Prefer creating a dedicated plain Fexios instance for REST (no MW-specific hooks).
@@ -97,7 +118,12 @@ export class MediaWikiRestApi {
     path: string,
     options?: MediaWikiRestRequestOptions
   ): Promise<FexiosFinalContext<T>> {
-    const { pathParams, ...restOptions } = options || {}
+    const {
+      pathParams,
+      retry = this.config.retry,
+      retryDelay = this.config.retryDelay,
+      ...restOptions
+    } = options || {}
     const finalPath = this.resolvePath(path, pathParams)
     const url = this.buildRestUrl(finalPath)
 
@@ -125,10 +151,20 @@ export class MediaWikiRestApi {
       merged.responseType = (restOptions as any).responseType
     }
 
-    return await this.http.request<T>({
-      ...merged,
-      url,
-      method,
+    const doRequest = () =>
+      this.http.request<T>({
+        ...merged,
+        url,
+        method,
+      })
+
+    if (retry <= 1) {
+      return await doRequest()
+    }
+    return await useRetry(doRequest, {
+      retry,
+      retryDelay,
+      shouldRetry: (error) => isRetryableTransportError(error),
     })
   }
 
