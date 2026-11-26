@@ -74,6 +74,7 @@ export class MediaWikiApi extends WikiSaikouCore {
   private autoReloginEnabled = false
   private sessionEpoch = 0
   private requestSessionEpochs = new WeakMap<object, number>()
+  private loginControllerEpochs = new WeakMap<AbortController, number>()
   private inflightRelogin?: Promise<void>
   private loginCredentials?: {
     lgname: string
@@ -110,16 +111,22 @@ export class MediaWikiApi extends WikiSaikouCore {
     this.request.on(
       'beforeRequest',
       (ctx) => {
+        const explicitEpoch = ctx.runtime.abortController
+          ? this.loginControllerEpochs.get(ctx.runtime.abortController)
+          : undefined
         const isTokensQuery = toStringArray(
           getParam(ctx.request.query, 'meta')
         ).includes('tokens')
         const isLoginAction =
           this.getAction(ctx.request.query, ctx.request.body) === 'login'
         if (
-          (isTokensQuery || isLoginAction) &&
+          (explicitEpoch !== undefined || isTokensQuery || isLoginAction) &&
           !this.requestSessionEpochs.has(ctx.runtime)
         ) {
-          this.requestSessionEpochs.set(ctx.runtime, this.sessionEpoch)
+          this.requestSessionEpochs.set(
+            ctx.runtime,
+            explicitEpoch ?? this.sessionEpoch
+          )
         }
         return ctx
       },
@@ -315,12 +322,15 @@ export class MediaWikiApi extends WikiSaikouCore {
       tokenOptions.noCache = true
     }
 
+    const loginTag = new AbortController()
+    this.loginControllerEpochs.set(loginTag, loginEpoch)
     const res = await this.postWithToken(
       'login',
       { action: 'login', lgname, lgpassword, ...params },
       {
         tokenName: 'lgtoken',
         ...tokenOptions,
+        fexiosOptions: { abortController: loginTag },
       }
     )
 
