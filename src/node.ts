@@ -12,6 +12,7 @@ import { raceWithSignal } from './utils/useRetry.js'
 import { FexiosHookHandler } from 'fexios/types'
 
 const STALE_SESSION_ERROR = Symbol.for('__WIKI_SAIKOU_STALE_SESSION__')
+const SESSION_EPOCH_ENV = Symbol.for('__WIKI_SAIKOU_SESSION_EPOCH__')
 
 // re-export for library users
 export * from './WikiSaikou.js'
@@ -55,9 +56,23 @@ export class MediaWikiApi extends WikiSaikouCore {
     super(config)
     this.request.plugin(pluginCookieJar)
     this.request.on(
+      'beforeRequest',
+      (ctx) => {
+        const customEnv = (ctx.runtime.customEnv ??= {}) as any
+        if (
+          customEnv[SESSION_EPOCH_ENV] === undefined &&
+          this.toStringArray(this.getParam(ctx.request.query, 'meta')).includes('tokens')
+        ) {
+          customEnv[SESSION_EPOCH_ENV] = this.sessionEpoch
+        }
+        return ctx
+      },
+      true
+    )
+    this.request.on(
       'afterResponse',
       (ctx) => {
-        const reqEpoch = ctx.runtime.customEnv?.sessionEpoch
+        const reqEpoch = (ctx.runtime.customEnv as any)?.[SESSION_EPOCH_ENV]
         if (typeof reqEpoch === 'number' && reqEpoch !== this.sessionEpoch) {
           throw Object.assign(new Error('Stale session epoch'), {
             [STALE_SESSION_ERROR]: true,
@@ -309,6 +324,7 @@ export class MediaWikiApi extends WikiSaikouCore {
   }> {
     const loginEpoch = ++this.sessionEpoch
     this.inflightRelogin = undefined
+    this.clearInflightTokens()
     return this.performLogin(lgname, lgpassword, params, postOptions, loginEpoch)
   }
 
@@ -358,7 +374,7 @@ export class MediaWikiApi extends WikiSaikouCore {
         ...tokenOptions,
         fexiosOptions: {
           customEnv: {
-            sessionEpoch: loginEpoch,
+            [SESSION_EPOCH_ENV]: loginEpoch,
           },
         },
       }
@@ -404,6 +420,7 @@ export class MediaWikiApi extends WikiSaikouCore {
     this.autoReloginEnabled = false
     this.loginCredentials = undefined
     this.inflightRelogin = undefined
+    this.clearInflightTokens()
     // optional, tell MediaWiki server to drop the session
     await this.postWithToken('csrf', {
       action: 'logout',

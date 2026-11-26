@@ -209,6 +209,19 @@ export class WikiSaikouCore {
     })
   }
 
+  private preserveCustomEnvSymbols(
+    payload: Partial<FexiosRequestOptions>,
+    sourceCustomEnv?: Record<PropertyKey, unknown>
+  ): void {
+    if (!sourceCustomEnv) return
+    const symbols = Object.getOwnPropertySymbols(sourceCustomEnv)
+    if (!symbols.length) return
+    const target = (payload.customEnv ??= {}) as Record<PropertyKey, unknown>
+    for (const sym of symbols) {
+      target[sym] = sourceCustomEnv[sym]
+    }
+  }
+
   async get<T = any>(
     query: MwApiParams,
     options?: WikiSaikouRequestOptions
@@ -233,6 +246,7 @@ export class WikiSaikouCore {
       },
       fexiosOptions
     )
+    this.preserveCustomEnvSymbols(payload, fexiosOptions.customEnv)
     return this.runWithRetry(
       () =>
         withTrackedAbortAndResponse(
@@ -266,6 +280,7 @@ export class WikiSaikouCore {
       },
       fexiosOptions
     )
+    this.preserveCustomEnvSymbols(payload, fexiosOptions.customEnv)
     return this.runWithRetry(
       () =>
         withTrackedAbortAndResponse(
@@ -392,6 +407,10 @@ export class WikiSaikouCore {
     this.tokens.delete(type)
     return this.tokens
   }
+  protected clearInflightTokens() {
+    this.inflightTokenRequests.clear()
+    this.inflightForcedTokenRequests.clear()
+  }
 
   private attachTokenToBody(
     body: MwApiParams | URLSearchParams | FormData,
@@ -478,6 +497,7 @@ export class WikiSaikouCore {
             },
           }
         )
+        this.preserveCustomEnvSymbols(postOptions, restFexiosOptions.customEnv)
         if (signal) {
           postOptions.signal = signal
         }

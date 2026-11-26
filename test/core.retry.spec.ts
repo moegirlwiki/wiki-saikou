@@ -882,5 +882,46 @@ describe('MediaWikiApi retry & cancellation', () => {
     await expect(
       apiFrozen.get({ action: 'query', meta: 'siteinfo' })
     ).rejects.toBe(frozenErr)
+
+    // 10. Old login()'s token GET failure does NOT propagate to new login() after logout()
+    let releaseOldLoginToken!: () => void
+    const oldLoginTokenGate = new Promise<void>((r) => {
+      releaseOldLoginToken = r
+    })
+    let loginTokenCalls = 0
+    const tokenIsolationFetch: typeof fetch = async (input, init) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      if (url.includes('meta=tokens') && url.includes('type=login')) {
+        loginTokenCalls++
+        if (loginTokenCalls === 1) {
+          await oldLoginTokenGate
+          throw new TypeError('fetch failed')
+        }
+      }
+      return mockServer.mockFetch(input as any, init)
+    }
+    const apiTokenIso = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: { fetch: tokenIsolationFetch },
+    })
+    const oldLoginP = apiTokenIso.login(MOCK_MW_USERNAME, MOCK_MW_PASSWORD)
+    await new Promise((r) => setTimeout(r, 20))
+    await apiTokenIso.logout()
+    const newLoginRes = await apiTokenIso.login(MOCK_MW_USERNAME, MOCK_MW_PASSWORD)
+    expect(newLoginRes.result).to.equal('Success')
+    expect(loginTokenCalls).to.equal(2)
+    releaseOldLoginToken()
+    await expect(oldLoginP).rejects.toMatchObject({
+      name: 'FexiosError',
+      code: 'NETWORK_ERROR',
+    })
+
+    // 11. Caller customEnv.sessionEpoch does not collide with internal session guard
+    const customEnvRes = await apiTokenIso.get(
+      { action: 'query', meta: 'siteinfo' },
+      { customEnv: { sessionEpoch: 42 } }
+    )
+    expect(customEnvRes.data.query.general).to.be.an('object')
+    expect(customEnvRes.runtime.customEnv?.sessionEpoch).to.equal(42)
   })
 })
