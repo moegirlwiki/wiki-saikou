@@ -129,7 +129,11 @@ export class WikiSaikouCore {
       defaultOptions,
       defaultParams
     ))
-    this.request = createFexiosSaikou(config.baseURL)
+    this.request = createFexiosSaikou(
+      deepMerge<Partial<FexiosConfigs>>({}, config.fexiosConfigs, {
+        baseURL: config.baseURL,
+      })
+    )
     this.tokenManager = new TokenManager(this.request)
   }
 
@@ -241,6 +245,7 @@ export class WikiSaikouCore {
     options?: WikiSaikouRequestOptions
   ) {
     this.config.fexiosConfigs.credentials = 'include'
+    this.request.baseConfigs.credentials = 'include'
     return this.get<{ query: { tokens: Record<MwTokenName, string> } }>(
       { action: 'query', meta: 'tokens', type: types },
       options
