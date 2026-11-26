@@ -67,43 +67,115 @@ export type MediaWikiCookieInput =
 export interface MediaWikiNodeInitConfig extends WikiSaikouInitConfig {
   /**
    * Callback invoked whenever cookies in `cookieJar` are updated by server
-   * `Set-Cookie` headers or cleared by `logout()`.
+   * `Set-Cookie` headers or cleared by `logout()` / failed cookie verification.
    */
   onCookiesChange?: (cookieJar: CookieJar) => void
 }
 
-export interface MediaWikiLoginOptions {
+export interface MediaWikiLoginBaseOptions {
+  /** Maximum total attempts for login/verification requests. */
   retry?: number
+  /** Whether to bypass cached `lgtoken` when running `action=login`. @default true */
   noCache?: boolean
+  /**
+   * Attach `assertuser` (or `assert=user`) to subsequent requests and, when
+   * credentials are provided, automatically re-login on session expiry.
+   * @default true
+   */
   autoRelogin?: boolean
+  /** Maximum auto-relogin attempts per `assertuserfailed` / `assertnameduserfailed` incident. @default 3 */
   autoReloginRetries?: number
+}
+
+interface MediaWikiCookieVerifyOptions {
   /**
    * Pre-existing cookies to import before logging in.
    * Accepts a `CookieJar`, a JSON string/array from `cookieJar.toJSON()`,
    * or a raw HTTP `Cookie` header string (e.g. `"session=abc; user=123"`).
    */
-  cookies?: MediaWikiCookieInput
+  cookies: MediaWikiCookieInput
   /**
-   * When `cookies` is provided, verify the session via `action=query&meta=userinfo`
-   * before accepting or falling back to credentials.
-   * Set to `false` to skip verification (0 startup requests).
+   * Verify imported cookies via `action=query&meta=userinfo` before accepting
+   * or falling back to credentials. Set to `false` to skip verification (0 startup requests).
    * @default true
    */
   verify?: boolean
   /**
-   * Expected MediaWiki username when logging in with `cookies`.
-   * - With `verify: true`: verifies `userinfo.name === username` (falls back to
-   *   `lgname`/`lgpassword` on mismatch, or throws `LOGIN_FAILED` if no credentials).
-   * - With `verify: false`: used for `assertuser` on subsequent requests
+   * Expected MediaWiki account name (same semantics as MediaWiki's `assertuser` parameter,
+   * NOT the `User@Bot` `lgname`).
+   * - With `verify: true`: checks `userinfo.name === assertuser` (also enforced on fallback/relogin).
+   * - With `verify: false`: attached as `assertuser` on subsequent requests
    *   (when omitted, generic `assert=user` is attached instead).
    */
-  username?: string
+  assertuser?: string
 }
 
-export interface MediaWikiLoginInput extends MediaWikiLoginOptions {
+/**
+ * Options for the 4-argument positional `login(lgname, lgpassword, params?, postOptions?)`.
+ * `verify` and `assertuser` are only valid when `cookies` is also provided.
+ */
+export type MediaWikiLoginOptions =
+  | (MediaWikiLoginBaseOptions & {
+      cookies?: undefined
+      verify?: never
+      assertuser?: never
+    })
+  | (MediaWikiLoginBaseOptions & MediaWikiCookieVerifyOptions)
+
+/** Credential-only login (`action=login`). */
+export interface MediaWikiPasswordLoginInput extends MediaWikiLoginBaseOptions {
+  lgname: string
+  lgpassword: string
+  /** Extra parameters merged into `action=login`. */
+  params?: MwApiParams
+  cookies?: undefined
+  verify?: never
+  assertuser?: never
+}
+
+/** Cookie-only login (no fallback credentials; `params`, `noCache`, and `autoReloginRetries` do not apply). */
+export interface MediaWikiCookieLoginInput extends MediaWikiCookieVerifyOptions {
+  /** Maximum total attempts for the `meta=userinfo` verification request. */
+  retry?: number
+  /**
+   * Attach `assertuser` (or `assert=user`) to subsequent requests to prevent
+   * silent anonymous actions if the cookie expires.
+   * @default true
+   */
+  autoRelogin?: boolean
+  lgname?: undefined
+  lgpassword?: undefined
+  params?: never
+  noCache?: never
+  autoReloginRetries?: never
+}
+
+/** Cookie-first login with automatic fallback to `action=login` and auto-relogin via credentials. */
+export interface MediaWikiCookieFallbackLoginInput
+  extends MediaWikiLoginBaseOptions,
+    MediaWikiCookieVerifyOptions {
+  lgname: string
+  lgpassword: string
+  /** Extra parameters merged into `action=login` when falling back to credentials. */
+  params?: MwApiParams
+}
+
+export type MediaWikiLoginInput =
+  | MediaWikiPasswordLoginInput
+  | MediaWikiCookieLoginInput
+  | MediaWikiCookieFallbackLoginInput
+
+interface NormalizedLoginInput {
+  cookies?: MediaWikiCookieInput
+  verify?: boolean
+  assertuser?: string
   lgname?: string
   lgpassword?: string
   params?: MwApiParams
+  retry?: number
+  noCache?: boolean
+  autoRelogin?: boolean
+  autoReloginRetries?: number
 }
 
 export interface MediaWikiLoginResult {
@@ -120,6 +192,13 @@ type SessionAssert =
 
 const isAssertFailedCode = (code: string) =>
   code === 'assertuserfailed' || code === 'assertnameduserfailed'
+
+// API errors during `meta=userinfo` that indicate an unauthenticated/expired cookie
+// (e.g. private wikis denying anonymous reads) rather than transient server errors like `maxlag`.
+const COOKIE_UNAUTHENTICATED_ERROR_CODES = new Set([
+  'readapidenied',
+  'notloggedin',
+])
 
 const isLoggedInUserinfo = (
   userinfo: unknown
@@ -159,6 +238,7 @@ export class MediaWikiApi extends WikiSaikouCore {
     lgname: string
     lgpassword: string
     username?: string
+    expectedAssertUser?: string
     autoReloginRetries: number
   }
 
@@ -267,40 +347,52 @@ export class MediaWikiApi extends WikiSaikouCore {
     this.onCookiesChange?.(this.cookieJar)
   }
 
-  private importCookiesInput(cookies: MediaWikiCookieInput): void {
+  private clearCookiesAndNotify(): void {
+    const hadCookies =
+      (this.request.cookieJar?.getAllCookies().length ?? 0) > 0
+    this.request.cookieJar?.clear()
+    if (hadCookies) {
+      this.notifyCookiesChange()
+    }
+  }
+
+  /**
+   * Parse and validate replacement cookies into a staging jar before mutating
+   * `this.cookieJar`, so malformed input never destroys an active session.
+   */
+  private parseCookiesInput(
+    cookies: MediaWikiCookieInput
+  ): SerializedCookieJarItem[] {
     const defaultDomain = this.getDefaultCookieDomain()
     if (cookies instanceof CookieJar) {
-      // Snapshot before clearing in case the caller passed `this.cookieJar` itself.
-      const items = cookies.toJSON()
-      this.cookieJar.clear()
-      this.cookieJar.importCookies(items, defaultDomain, '/')
-      return
+      return cookies.toJSON()
     }
 
-    this.cookieJar.clear()
-
+    const staging = new CookieJar()
     if (typeof cookies === 'string') {
       const trimmed = cookies.trim()
-      if (!trimmed) return
+      if (!trimmed) return []
       // RFC 6265 cookie names cannot contain `[`, so a leading `[` unambiguously indicates serialized JSON.
       if (trimmed.startsWith('[')) {
         const parsed = JSON.parse(trimmed)
         if (!Array.isArray(parsed)) {
           throw new TypeError('Serialized cookies JSON must be an array')
         }
-        this.cookieJar.importCookies(parsed, defaultDomain, '/')
+        staging.importCookies(parsed, defaultDomain, '/')
       } else {
-        this.cookieJar.parseCookieHeader(trimmed, defaultDomain, '/')
+        staging.parseCookieHeader(trimmed, defaultDomain, '/')
       }
-      return
+      return staging.toJSON()
     }
 
-    this.cookieJar.importCookies(cookies, defaultDomain, '/')
+    staging.importCookies(cookies, defaultDomain, '/')
+    return staging.toJSON()
   }
 
   private applyCookieSessionState(options: {
     autoRelogin: boolean
     username?: string
+    expectedAssertUser?: string
     hasCredentials: boolean
     lgname?: string
     lgpassword?: string
@@ -323,6 +415,7 @@ export class MediaWikiApi extends WikiSaikouCore {
         lgname: options.lgname,
         lgpassword: options.lgpassword,
         username: options.username,
+        expectedAssertUser: options.expectedAssertUser,
         autoReloginRetries: options.autoReloginRetries,
       }
     } else {
@@ -347,8 +440,14 @@ export class MediaWikiApi extends WikiSaikouCore {
     return check(query) || check(body)
   }
 
-  private shouldSkipAutoRelogin(query?: unknown, body?: unknown): boolean {
+  private shouldSkipAutoRelogin(
+    query?: unknown,
+    body?: unknown,
+    abortController?: AbortController
+  ): boolean {
     return (
+      (abortController !== undefined &&
+        this.loginControllerEpochs.has(abortController)) ||
       this.getAction(query, body) === 'login' ||
       this.isLoginTokenRequest(query, body)
     )
@@ -366,12 +465,17 @@ export class MediaWikiApi extends WikiSaikouCore {
     if (this.inflightRelogin) return this.inflightRelogin
 
     const epoch = this.sessionEpoch
-    const { lgname, lgpassword, autoReloginRetries } = this.loginCredentials
+    const { lgname, lgpassword, autoReloginRetries, expectedAssertUser } =
+      this.loginCredentials
     const pending = this.performLogin(
       lgname,
       lgpassword,
       undefined,
-      { autoRelogin: true, autoReloginRetries },
+      {
+        autoRelogin: true,
+        autoReloginRetries,
+        assertuser: expectedAssertUser,
+      },
       epoch
     )
       .then(() => undefined)
@@ -400,7 +504,7 @@ export class MediaWikiApi extends WikiSaikouCore {
     const { query, body } = ctx.request
 
     if (
-      this.shouldSkipAutoRelogin(query, body) ||
+      this.shouldSkipAutoRelogin(query, body, ctx.runtime.abortController) ||
       hasParam(query, 'assertuser') ||
       hasParam(body, 'assertuser') ||
       hasParam(query, 'assert') ||
@@ -438,7 +542,7 @@ export class MediaWikiApi extends WikiSaikouCore {
       hasParam(query, 'assert') ||
       hasParam(body, 'assert')
     if (
-      this.shouldSkipAutoRelogin(query, body) ||
+      this.shouldSkipAutoRelogin(query, body, ctx.runtime.abortController) ||
       !hasAssertParam ||
       !this.isAssertUserFailed(ctx.data)
     ) {
@@ -500,7 +604,16 @@ export class MediaWikiApi extends WikiSaikouCore {
     return (await this.request.request(retryOptions)) ?? ctx
   }
 
+  /**
+   * Login with cached cookies, bot credentials, or both (cookie-first with automatic fallback).
+   * - Credential-only: `{ lgname, lgpassword, params?, retry?, noCache?, autoRelogin?, autoReloginRetries? }`
+   * - Cookie-only: `{ cookies, assertuser?, verify?, autoRelogin?, retry? }`
+   * - Cookie + fallback credentials: `{ cookies, lgname, lgpassword, assertuser?, verify?, params?, ... }`
+   */
   async login(options: MediaWikiLoginInput): Promise<MediaWikiLoginResult>
+  /**
+   * Login with bot password (optionally passing cached `cookies` in `postOptions` to reuse before falling back).
+   */
   async login(
     lgname: string,
     lgpassword: string,
@@ -513,15 +626,15 @@ export class MediaWikiApi extends WikiSaikouCore {
     params?: MwApiParams,
     postOptions?: MediaWikiLoginOptions
   ): Promise<MediaWikiLoginResult> {
-    const input: MediaWikiLoginInput =
+    const input: NormalizedLoginInput =
       typeof lgnameOrOptions === 'string'
         ? {
-            ...postOptions,
+            ...(postOptions as NormalizedLoginInput | undefined),
             lgname: lgnameOrOptions,
             lgpassword,
             params,
           }
-        : lgnameOrOptions || {}
+        : ((lgnameOrOptions || {}) as NormalizedLoginInput)
 
     const hasLgname =
       typeof input.lgname === 'string' && input.lgname.length > 0
@@ -543,10 +656,12 @@ export class MediaWikiApi extends WikiSaikouCore {
       )
     }
 
+    // Validate/parse cookies BEFORE mutating session epoch or clearing existing jar.
+    const stagedCookies = hasCookies
+      ? this.parseCookiesInput(input.cookies!)
+      : undefined
+
     const loginEpoch = this.advanceSessionEpoch()
-    this.sessionAssert = undefined
-    this.autoReloginEnabled = false
-    this.loginCredentials = undefined
 
     if (!hasCookies) {
       return this.performLogin(
@@ -558,13 +673,21 @@ export class MediaWikiApi extends WikiSaikouCore {
       )
     }
 
+    this.sessionAssert = undefined
+    this.autoReloginEnabled = false
+    this.loginCredentials = undefined
     this.config.fexiosConfigs.credentials = 'include'
     this.tokens.clear()
-    this.importCookiesInput(input.cookies!)
+    this.cookieJar.clear()
+    this.cookieJar.importCookies(
+      stagedCookies!,
+      this.getDefaultCookieDomain(),
+      '/'
+    )
 
     const {
       verify = true,
-      username,
+      assertuser,
       autoRelogin = true,
       autoReloginRetries,
       retry,
@@ -574,7 +697,8 @@ export class MediaWikiApi extends WikiSaikouCore {
     if (!verify) {
       this.applyCookieSessionState({
         autoRelogin,
-        username,
+        username: assertuser,
+        expectedAssertUser: assertuser,
         hasCredentials,
         lgname: input.lgname,
         lgpassword: input.lgpassword,
@@ -583,12 +707,12 @@ export class MediaWikiApi extends WikiSaikouCore {
       return {
         result: 'Success',
         lguserid: 0,
-        lgusername: username ?? '',
+        lgusername: assertuser ?? '',
       }
     }
 
     const verified = await this.verifyCookieSession(loginEpoch, {
-      expectedUsername: username,
+      expectedAssertUser: assertuser,
       retry,
     })
 
@@ -600,6 +724,7 @@ export class MediaWikiApi extends WikiSaikouCore {
       this.applyCookieSessionState({
         autoRelogin,
         username: verified.lgusername,
+        expectedAssertUser: assertuser,
         hasCredentials,
         lgname: input.lgname,
         lgpassword: input.lgpassword,
@@ -613,7 +738,7 @@ export class MediaWikiApi extends WikiSaikouCore {
     }
 
     // Clear invalid, expired, or wrong-user cookies so they cannot leak into subsequent requests.
-    this.cookieJar.clear()
+    this.clearCookiesAndNotify()
 
     if (hasCredentials) {
       return this.performLogin(
@@ -634,7 +759,7 @@ export class MediaWikiApi extends WikiSaikouCore {
 
   private async verifyCookieSession(
     loginEpoch: number,
-    options: { expectedUsername?: string; retry?: number }
+    options: { expectedAssertUser?: string; retry?: number }
   ): Promise<
     | { ok: true; lguserid: number; lgusername: string }
     | { ok: false; reason: string; cause?: unknown }
@@ -652,7 +777,11 @@ export class MediaWikiApi extends WikiSaikouCore {
         }
       )
     } catch (err) {
-      if (MediaWikiApiError.is(err)) {
+      if (
+        MediaWikiApiError.is(err) &&
+        err.errors.length > 0 &&
+        err.errors.every((e) => COOKIE_UNAUTHENTICATED_ERROR_CODES.has(e.code))
+      ) {
         return {
           ok: false,
           reason: err.message || 'Cookie session verification failed',
@@ -664,13 +793,19 @@ export class MediaWikiApi extends WikiSaikouCore {
 
     const errors = WikiSaikouError.extractMediaWikiApiErrors(res.data)
     if (errors.length > 0) {
-      return {
-        ok: false,
-        reason:
-          errors.map((e) => e.text || e.code).join('\n') ||
-          'Cookie session verification failed',
-        cause: res.data,
+      if (
+        errors.every((e) => COOKIE_UNAUTHENTICATED_ERROR_CODES.has(e.code))
+      ) {
+        return {
+          ok: false,
+          reason:
+            errors.map((e) => e.text || e.code).join('\n') ||
+            'Cookie session verification failed',
+          cause: res.data,
+        }
       }
+      // Transient/unexpected API errors (e.g. `maxlag`, `ratelimited`) must not discard valid cookies.
+      throw new MediaWikiApiError(errors, res)
     }
 
     const userinfo = res.data?.query?.userinfo
@@ -683,12 +818,12 @@ export class MediaWikiApi extends WikiSaikouCore {
     }
 
     if (
-      options.expectedUsername !== undefined &&
-      userinfo.name !== options.expectedUsername
+      options.expectedAssertUser !== undefined &&
+      userinfo.name !== options.expectedAssertUser
     ) {
       return {
         ok: false,
-        reason: `Cookie session belongs to "${userinfo.name}", expected "${options.expectedUsername}"`,
+        reason: `Cookie session belongs to "${userinfo.name}", expected "${options.expectedAssertUser}"`,
         cause: res.data,
       }
     }
@@ -704,7 +839,7 @@ export class MediaWikiApi extends WikiSaikouCore {
     lgname: string,
     lgpassword: string,
     params: MwApiParams | undefined,
-    postOptions: MediaWikiLoginOptions | undefined,
+    postOptions: NormalizedLoginInput | undefined,
     loginEpoch: number
   ): Promise<MediaWikiLoginResult> {
     if (loginEpoch !== this.sessionEpoch) {
@@ -716,14 +851,14 @@ export class MediaWikiApi extends WikiSaikouCore {
     const {
       autoRelogin = true,
       autoReloginRetries = 3,
+      assertuser: expectedAssertUser,
       cookies: _cookies,
       verify: _verify,
-      username: _username,
       lgname: _lgname,
       lgpassword: _lgpassword,
       params: _params,
       ...tokenOptions
-    } = (postOptions || {}) as MediaWikiLoginInput
+    } = postOptions || {}
     if (tokenOptions.noCache === undefined) {
       tokenOptions.noCache = true
     }
@@ -755,6 +890,21 @@ export class MediaWikiApi extends WikiSaikouCore {
       throw createStaleSessionError()
     }
 
+    if (
+      expectedAssertUser !== undefined &&
+      data.login.lgusername !== expectedAssertUser
+    ) {
+      this.sessionAssert = undefined
+      this.autoReloginEnabled = false
+      this.loginCredentials = undefined
+      this.clearCookiesAndNotify()
+      throw new WikiSaikouError(
+        WikiSaikouErrorCode.LOGIN_FAILED,
+        `Logged in as "${data.login.lgusername}", expected "${expectedAssertUser}"`,
+        data
+      )
+    }
+
     if (autoRelogin === true) {
       this.sessionAssert = {
         kind: 'nameduser',
@@ -765,6 +915,7 @@ export class MediaWikiApi extends WikiSaikouCore {
         lgname,
         lgpassword,
         username: data.login.lgusername,
+        expectedAssertUser,
         autoReloginRetries: normalizeAutoReloginRetries(autoReloginRetries),
       }
     } else if (autoRelogin === false) {
@@ -776,20 +927,18 @@ export class MediaWikiApi extends WikiSaikouCore {
   }
 
   async logout(): Promise<void> {
-    this.advanceSessionEpoch()
+    const logoutEpoch = this.advanceSessionEpoch()
     this.sessionAssert = undefined
     this.autoReloginEnabled = false
     this.loginCredentials = undefined
     await this.postWithToken('csrf', { action: 'logout' }).catch(() => {
       // Ignore server-side logout failures
     })
-    this.tokens.clear()
-    const hadCookies =
-      (this.request.cookieJar?.getAllCookies().length ?? 0) > 0
-    this.request.cookieJar?.clear()
-    if (hadCookies) {
-      this.notifyCookiesChange()
+    if (logoutEpoch !== this.sessionEpoch) {
+      return
     }
+    this.tokens.clear()
+    this.clearCookiesAndNotify()
   }
 }
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   CookieJar,
   MediaWikiApi,
+  MediaWikiApiError,
   WikiSaikouErrorCode,
 } from '@/node.js'
 import {
@@ -95,11 +96,13 @@ describe('Cookie-based login (Node)', () => {
     expect(selfRes.lgusername).to.equal(MOCK_MW_USERNAME)
   })
 
-  it('throws LOGIN_FAILED for expired/invalid cookies when no credentials are provided', async () => {
+  it('throws LOGIN_FAILED and notifies onCookiesChange when expired cookies are cleared', async () => {
     const server = createMockServer()
+    const snapshots: number[] = []
     const api = new MediaWikiApi({
       baseURL: MOCK_API_ENDPOINT_URL.href,
       fexiosConfigs: { fetch: server.mockFetch },
+      onCookiesChange: (jar) => snapshots.push(jar.toJSON().length),
     })
 
     await expect(
@@ -107,9 +110,11 @@ describe('Cookie-based login (Node)', () => {
     ).rejects.toMatchObject({
       code: WikiSaikouErrorCode.LOGIN_FAILED,
     })
+    expect(api.cookieJar.toJSON()).to.have.length(0)
+    expect(snapshots).to.deep.equal([0])
   })
 
-  it('checks expected username and falls back to credentials on mismatch or expired cookie', async () => {
+  it('enforces assertuser on verify and fallback credential login, and falls back on expired cookie', async () => {
     const server = createMockServer()
     const seedApi = new MediaWikiApi({
       baseURL: MOCK_API_ENDPOINT_URL.href,
@@ -124,13 +129,30 @@ describe('Cookie-based login (Node)', () => {
       fexiosConfigs: { fetch: server.mockFetch },
     })
     await expect(
-      mismatchOnly.login({ cookies: validCookies, username: 'OtherUser' })
+      mismatchOnly.login({ cookies: validCookies, assertuser: 'OtherUser' })
     ).rejects.toMatchObject({
       code: WikiSaikouErrorCode.LOGIN_FAILED,
     })
     expect(mismatchOnly.cookieJar.toJSON()).to.have.length(0)
 
-    // Expired cookie WITH credentials -> falls back to action=login and arms autoRelogin
+    // Mismatch on fallback credentials too -> rejects instead of silently switching accounts
+    const mismatchFallback = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: { fetch: server.mockFetch },
+    })
+    await expect(
+      mismatchFallback.login({
+        cookies: 'wiki_session=expired',
+        lgname: MOCK_MW_USERNAME,
+        lgpassword: MOCK_MW_PASSWORD,
+        assertuser: 'OtherUser',
+      })
+    ).rejects.toMatchObject({
+      code: WikiSaikouErrorCode.LOGIN_FAILED,
+    })
+    expect(mismatchFallback.cookieJar.toJSON()).to.have.length(0)
+
+    // Expired cookie WITH matching credentials -> falls back to action=login and arms autoRelogin
     let loginPosts = 0
     const spyFetch: typeof fetch = async (input, init) => {
       const action = await getActionFromFetchArgs(input, init)
@@ -145,6 +167,7 @@ describe('Cookie-based login (Node)', () => {
       cookies: 'wiki_session=expired',
       lgname: MOCK_MW_USERNAME,
       lgpassword: MOCK_MW_PASSWORD,
+      assertuser: MOCK_MW_USERNAME,
     })
     expect(res.result).to.equal('Success')
     expect(res.lgusername).to.equal(MOCK_MW_USERNAME)
@@ -182,6 +205,7 @@ describe('Cookie-based login (Node)', () => {
     })
     const res = await api.login(MOCK_MW_USERNAME, MOCK_MW_PASSWORD, undefined, {
       cookies: saved,
+      assertuser: MOCK_MW_USERNAME,
     })
     expect(res.result).to.equal('Success')
     expect(res.lgusername).to.equal(MOCK_MW_USERNAME)
@@ -194,11 +218,18 @@ describe('Cookie-based login (Node)', () => {
     expect(loginPosts).to.equal(1)
   })
 
-  it('falls back to credentials on private-wiki readapidenied during verify (including throwOnApiError: true)', async () => {
+  it('falls back on private-wiki readapidenied, but propagates transient API errors like maxlag without clearing valid cookies', async () => {
     const server = createMockServer()
+    const seedApi = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: { fetch: server.mockFetch },
+    })
+    await seedApi.login(MOCK_MW_USERNAME, MOCK_MW_PASSWORD)
+    const validCookies = seedApi.cookieJar.toJSON()
+
+    // 1. readapidenied with throwOnApiError: true -> falls back to credentials
     let loginPosts = 0
     let denyUserinfo = true
-
     const privateWikiFetch: typeof fetch = async (input, init) => {
       const url = typeof input === 'string' ? input : (input as Request).url
       const action = await getActionFromFetchArgs(input, init)
@@ -222,18 +253,51 @@ describe('Cookie-based login (Node)', () => {
       return server.mockFetch(input as any, init)
     }
 
-    const api = new MediaWikiApi({
+    const privateApi = new MediaWikiApi({
       baseURL: MOCK_API_ENDPOINT_URL.href,
       throwOnApiError: true,
       fexiosConfigs: { fetch: privateWikiFetch },
     })
-    const res = await api.login({
+    const res = await privateApi.login({
       cookies: 'wiki_session=dead',
       lgname: MOCK_MW_USERNAME,
       lgpassword: MOCK_MW_PASSWORD,
     })
     expect(res.result).to.equal('Success')
     expect(loginPosts).to.equal(1)
+
+    // 2. Transient maxlag during verify -> propagates MediaWikiApiError without clearing cookies or running action=login
+    let maxlagLoginPosts = 0
+    const maxlagFetch: typeof fetch = async (input, init) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      const action = await getActionFromFetchArgs(input, init)
+      if (action === 'login') maxlagLoginPosts++
+      if (url.includes('meta=userinfo')) {
+        return new Response(
+          JSON.stringify({
+            errors: [{ code: 'maxlag', text: 'Waiting for replication lag' }],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        )
+      }
+      return server.mockFetch(input as any, init)
+    }
+
+    const maxlagApi = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: { fetch: maxlagFetch },
+    })
+    await expect(
+      maxlagApi.login({
+        cookies: validCookies,
+        lgname: MOCK_MW_USERNAME,
+        lgpassword: MOCK_MW_PASSWORD,
+      })
+    ).rejects.toSatisfy(
+      (err: unknown) => MediaWikiApiError.is(err) && err.code === 'maxlag'
+    )
+    expect(maxlagLoginPosts).to.equal(0)
+    expect(maxlagApi.cookieJar.toJSON()).to.have.length(1)
   })
 
   it('supports verify: false with 0 startup requests, assert=user / assertuser, and autoRelogin on first failure', async () => {
@@ -245,7 +309,7 @@ describe('Cookie-based login (Node)', () => {
     await seedApi.login(MOCK_MW_USERNAME, MOCK_MW_PASSWORD)
     const saved = seedApi.cookieJar.toJSON()
 
-    // 1. verify: false with username -> 0 requests, attaches assertuser
+    // 1. verify: false with assertuser -> 0 requests, attaches assertuser
     let fetchCount = 0
     let lastUrl = ''
     const spyFetch: typeof fetch = async (input, init) => {
@@ -260,7 +324,7 @@ describe('Cookie-based login (Node)', () => {
     const res1 = await apiWithName.login({
       cookies: saved,
       verify: false,
-      username: MOCK_MW_USERNAME,
+      assertuser: MOCK_MW_USERNAME,
     })
     expect(fetchCount).to.equal(0)
     expect(res1).to.deep.equal({
@@ -271,7 +335,7 @@ describe('Cookie-based login (Node)', () => {
     await apiWithName.get({ action: 'query', meta: 'siteinfo' })
     expect(lastUrl).to.include(`assertuser=${MOCK_MW_USERNAME}`)
 
-    // 2. verify: false WITHOUT username -> attaches assert=user; fails with assertuserfailed if dropped
+    // 2. verify: false WITHOUT assertuser -> attaches assert=user; fails with assertuserfailed if dropped
     let assertUserQuerySeen = false
     const apiNoName = new MediaWikiApi({
       baseURL: MOCK_API_ENDPOINT_URL.href,
@@ -325,7 +389,7 @@ describe('Cookie-based login (Node)', () => {
     expect(seenUrls[0]).to.include(`assertuser=${MOCK_MW_USERNAME}`)
   })
 
-  it('respects autoRelogin: false and validates missing/partial login inputs', async () => {
+  it('rejects malformed cookies without destroying an existing session, and validates invalid option combinations', async () => {
     const server = createMockServer()
     let sawAssert = false
     const api = new MediaWikiApi({
@@ -333,7 +397,7 @@ describe('Cookie-based login (Node)', () => {
       fexiosConfigs: {
         fetch: async (input, init) => {
           const url = typeof input === 'string' ? input : (input as Request).url
-          if (url.includes('assert=' ) || url.includes('assertuser=')) {
+          if (url.includes('assert=') || url.includes('assertuser=')) {
             sawAssert = true
           }
           return server.mockFetch(input as any, init)
@@ -341,13 +405,41 @@ describe('Cookie-based login (Node)', () => {
       },
     })
 
+    // Establish an active session first
+    await api.login(MOCK_MW_USERNAME, MOCK_MW_PASSWORD)
+    const activeCookies = api.cookieJar.toJSON()
+
+    // Malformed serialized JSON must throw without clearing the active session
+    await expect(api.login({ cookies: '[invalid-json' })).rejects.toThrow()
+    expect(api.cookieJar.toJSON()).to.deep.equal(activeCookies)
+
+    // Compile-time + runtime rejection of invalid option combinations
+    // @ts-expect-error neither cookies nor credentials provided
     await expect(api.login({})).rejects.toMatchObject({
       code: WikiSaikouErrorCode.LOGIN_FAILED,
     })
+    // @ts-expect-error lgname without lgpassword
     await expect(api.login({ lgname: MOCK_MW_USERNAME })).rejects.toMatchObject({
       code: WikiSaikouErrorCode.LOGIN_FAILED,
     })
 
+    // Type-level checks for mismatched option pairings (never executed)
+    if (false as boolean) {
+      // @ts-expect-error assertuser is only valid when cookies is provided
+      void api.login({
+        lgname: MOCK_MW_USERNAME,
+        lgpassword: MOCK_MW_PASSWORD,
+        assertuser: MOCK_MW_USERNAME,
+      })
+      // @ts-expect-error verify is only valid when cookies is provided
+      void api.login(MOCK_MW_USERNAME, MOCK_MW_PASSWORD, undefined, {
+        verify: false,
+      })
+      // @ts-expect-error autoReloginRetries requires lgname + lgpassword
+      void api.login({ cookies: 'wiki_session=x', autoReloginRetries: 2 })
+    }
+
+    sawAssert = false
     await api.login({
       cookies: 'wiki_session=anything',
       verify: false,
@@ -384,7 +476,7 @@ describe('Cookie-based login (Node)', () => {
     expect(snapshots.length).to.equal(countAfterLogout)
   })
 
-  it('isolates in-flight cookie verify from concurrent logout()', async () => {
+  it('isolates in-flight cookie verify and logout() from concurrent session transitions', async () => {
     const server = createMockServer()
     const seedApi = new MediaWikiApi({
       baseURL: MOCK_API_ENDPOINT_URL.href,
@@ -393,6 +485,11 @@ describe('Cookie-based login (Node)', () => {
     await seedApi.login(MOCK_MW_USERNAME, MOCK_MW_PASSWORD)
     const saved = seedApi.cookieJar.toJSON()
 
+    // 1. logout() while verifyCookieSession is in flight
+    let markVerifyStarted!: () => void
+    const verifyStarted = new Promise<void>((r) => {
+      markVerifyStarted = r
+    })
     let releaseVerify!: () => void
     const verifyGate = new Promise<void>((r) => {
       releaseVerify = r
@@ -400,6 +497,7 @@ describe('Cookie-based login (Node)', () => {
     const gatedFetch: typeof fetch = async (input, init) => {
       const url = typeof input === 'string' ? input : (input as Request).url
       if (url.includes('meta=userinfo')) {
+        markVerifyStarted()
         await verifyGate
       }
       return server.mockFetch(input as any, init)
@@ -410,11 +508,44 @@ describe('Cookie-based login (Node)', () => {
       fexiosConfigs: { fetch: gatedFetch },
     })
     const loginPromise = api.login({ cookies: saved })
-    await new Promise((r) => setTimeout(r, 20))
+    await verifyStarted
     await api.logout()
     releaseVerify()
 
     await expect(loginPromise).rejects.toThrow('Stale session epoch')
     expect(api.cookieJar.toJSON()).to.have.length(0)
+
+    // 2. Newer login() completing while an earlier logout() is still awaiting server logout must not be wiped
+    let markLogoutStarted!: () => void
+    const logoutStarted = new Promise<void>((r) => {
+      markLogoutStarted = r
+    })
+    let releaseLogout!: () => void
+    const logoutGate = new Promise<void>((r) => {
+      releaseLogout = r
+    })
+    const logoutRaceFetch: typeof fetch = async (input, init) => {
+      const action = await getActionFromFetchArgs(input, init)
+      if (action === 'logout') {
+        markLogoutStarted()
+        await logoutGate
+      }
+      return server.mockFetch(input as any, init)
+    }
+
+    const api2 = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: { fetch: logoutRaceFetch },
+    })
+    await api2.login(MOCK_MW_USERNAME, MOCK_MW_PASSWORD)
+    const logoutP = api2.logout()
+    await logoutStarted
+    const reloginRes = await api2.login(MOCK_MW_USERNAME, MOCK_MW_PASSWORD)
+    expect(reloginRes.result).to.equal('Success')
+    const newerCookies = api2.cookieJar.toJSON()
+    expect(newerCookies).to.have.length(1)
+    releaseLogout()
+    await logoutP
+    expect(api2.cookieJar.toJSON()).to.deep.equal(newerCookies)
   })
 })
