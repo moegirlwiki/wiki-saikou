@@ -1107,4 +1107,26 @@ describe('MediaWikiApi retry & cancellation', () => {
     expect(await siteATokenP).to.equal('token-site-a')
     expect(apiMultiSite.tokens.get('csrf')).to.equal('token-site-b')
   })
+
+  it('preserves primitive customEnv values on manual meta=tokens requests', async () => {
+    const mockServer = createMockServer()
+    const api = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: { fetch: mockServer.mockFetch },
+    })
+
+    const resStr = await api.get(
+      { action: 'query', meta: 'tokens', type: 'csrf' },
+      { customEnv: 'trace-1' }
+    )
+    expect(resStr.runtime.customEnv).to.equal('trace-1')
+    expect(resStr.data.query.tokens.csrftoken).to.be.a('string')
+
+    const resBool = await api.get(
+      { action: 'query', meta: 'tokens', type: 'csrf' },
+      { customEnv: false }
+    )
+    expect(resBool.runtime.customEnv).to.equal(false)
+    expect(resBool.data.query.tokens.csrftoken).to.be.a('string')
+  })
 })

@@ -1,29 +1,74 @@
-import type { FexiosConfigs, FexiosContext, FexiosFinalContext } from 'fexios'
-import { WikiSaikouCore, WikiSaikouInitConfig } from './WikiSaikou.js'
+import type {
+  FexiosConfigs,
+  FexiosContext,
+  FexiosFinalContext,
+  FexiosRequestOptions,
+} from 'fexios'
 import { CookieJar, type CookieJarItem, pluginCookieJar } from 'fexios/plugins'
-import { resolveLegacyCtor } from './utils/resolveLegacyCtor.js'
-import { MwApiParams, MwApiResponse } from './types.js'
+import type { FexiosHookHandler } from 'fexios/types'
+import { WikiSaikouCore, type WikiSaikouInitConfig } from './WikiSaikou.js'
+import { raceWithSignal } from './internals/abort.js'
+import {
+  getParam,
+  hasParam,
+  setParam,
+  toStringArray,
+} from './internals/params.js'
 import {
   MediaWikiApiError,
   WikiSaikouError,
   WikiSaikouErrorCode,
 } from './models/errors.js'
-import { raceWithSignal } from './utils/useRetry.js'
-import { FexiosHookHandler } from 'fexios/types'
+import { resolveLegacyCtor } from './utils/resolveLegacyCtor.js'
+import type { MwApiParams, MwApiResponse } from './types.js'
 
-const STALE_SESSION_ERROR = Symbol.for('__WIKI_SAIKOU_STALE_SESSION__')
-const SESSION_EPOCH_ENV = Symbol.for('__WIKI_SAIKOU_SESSION_EPOCH__')
-
-// re-export for library users
+// Re-export for library users
 export * from './WikiSaikou.js'
 export * from './RestSaikou.js'
-export { CookieJar, CookieJarItem }
+export { CookieJar, type CookieJarItem }
+
+const STALE_SESSION_ERROR = Symbol.for('__WIKI_SAIKOU_STALE_SESSION__')
+
+type StaleSessionError = Error & { [STALE_SESSION_ERROR]?: boolean }
+
+function createStaleSessionError(): StaleSessionError {
+  return Object.assign(new Error('Stale session epoch'), {
+    [STALE_SESSION_ERROR]: true,
+  })
+}
+
+function isStaleSessionError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  if ((err as StaleSessionError)[STALE_SESSION_ERROR]) return true
+  const cause = (err as { cause?: unknown }).cause
+  return Boolean(
+    cause &&
+      typeof cause === 'object' &&
+      (cause as StaleSessionError)[STALE_SESSION_ERROR]
+  )
+}
+
+export interface MediaWikiLoginOptions {
+  retry?: number
+  noCache?: boolean
+  autoRelogin?: boolean
+  autoReloginRetries?: number
+}
+
+export interface MediaWikiLoginResult {
+  result: 'Success' | 'NeedToken' | 'WrongToken' | 'Failed'
+  token?: string
+  reason?: { code: string; text: string }
+  lguserid: number
+  lgusername: string
+}
+
+const isAssertFailedCode = (code: string) =>
+  code === 'assertuserfailed' || code === 'assertnameduserfailed'
 
 /**
- * WikiSaikou
- * @description Standalone MediaWiki API SDK with `mw.Api`-like API in any environments
- * @author Dragon-Fish <dragon-fish@qq.com>
- * @license MIT
+ * Node.js MediaWiki API client with cookie persistence, bot login,
+ * session-epoch isolation, and singleflight auto-relogin.
  */
 export class MediaWikiApi extends WikiSaikouCore {
   private autoReloginEnabled = false
@@ -49,25 +94,30 @@ export class MediaWikiApi extends WikiSaikouCore {
     defaultOptions?: Partial<FexiosConfigs>,
     defaultParams?: MwApiParams
   ) {
-    const config = resolveLegacyCtor(
-      configOrBaseURL,
-      defaultOptions,
-      defaultParams
-    )
-    super(config)
+    super(resolveLegacyCtor(configOrBaseURL, defaultOptions, defaultParams))
     this.request.plugin(pluginCookieJar)
+    this.attachSessionGuards()
+    this.request.on('beforeRequest', (ctx) => this.handleBeforeRequest(ctx))
+    this.request.on('afterResponse', (ctx) => this.handleAfterResponse(ctx))
+  }
+
+  /**
+   * Track session epoch per request runtime in a WeakMap (never mutating
+   * caller-provided `customEnv`) so stale login/token responses from an older
+   * session cannot overwrite cookies or tokens of a newer session.
+   */
+  private attachSessionGuards(): void {
     this.request.on(
       'beforeRequest',
       (ctx) => {
-        const customEnv = ctx.runtime.customEnv as any
-        const explicitEpoch =
-          customEnv && typeof customEnv === 'object'
-            ? customEnv[SESSION_EPOCH_ENV]
-            : undefined
-        if (typeof explicitEpoch === 'number') {
-          this.requestSessionEpochs.set(ctx.runtime, explicitEpoch)
-        } else if (
-          this.toStringArray(this.getParam(ctx.request.query, 'meta')).includes('tokens')
+        const isTokensQuery = toStringArray(
+          getParam(ctx.request.query, 'meta')
+        ).includes('tokens')
+        const isLoginAction =
+          this.getAction(ctx.request.query, ctx.request.body) === 'login'
+        if (
+          (isTokensQuery || isLoginAction) &&
+          !this.requestSessionEpochs.has(ctx.runtime)
         ) {
           this.requestSessionEpochs.set(ctx.runtime, this.sessionEpoch)
         }
@@ -75,146 +125,77 @@ export class MediaWikiApi extends WikiSaikouCore {
       },
       true
     )
+
     this.request.on(
       'afterResponse',
       (ctx) => {
         const reqEpoch = this.requestSessionEpochs.get(ctx.runtime)
         if (typeof reqEpoch === 'number' && reqEpoch !== this.sessionEpoch) {
-          throw Object.assign(new Error('Stale session epoch'), {
-            [STALE_SESSION_ERROR]: true,
-          })
+          throw createStaleSessionError()
         }
         return ctx
       },
       true
     )
-    this.request.on('beforeRequest', (ctx) => this.handleBeforeRequest(ctx))
-    this.request.on('afterResponse', (ctx) => this.handleAfterResponse(ctx))
+  }
+
+  private advanceSessionEpoch(): number {
+    this.sessionEpoch++
+    this.inflightRelogin = undefined
+    this.clearInflightTokens()
+    return this.sessionEpoch
   }
 
   private canAutoRelogin() {
     return Boolean(this.autoReloginEnabled && this.loginCredentials?.username)
   }
 
-  private getAssertUser() {
-    return this.loginCredentials?.username
-  }
-
-  private getAutoReloginRetries() {
-    return this.loginCredentials?.autoReloginRetries ?? 3
-  }
-
-  private getParam(data: any, key: string): unknown {
-    if (!data) return undefined
-    if (data instanceof URLSearchParams) {
-      return data.get(key)
-    }
-    if (typeof FormData !== 'undefined' && data instanceof FormData) {
-      return data.get(key)
-    }
-    return data[key]
-  }
-
-  private hasParam(data: any, key: string): boolean {
-    if (!data) return false
-    if (data instanceof URLSearchParams) {
-      return data.has(key)
-    }
-    if (typeof FormData !== 'undefined' && data instanceof FormData) {
-      return data.has(key)
-    }
-    return data[key] !== undefined
-  }
-
-  private setParam(data: any, key: string, value: string): void {
-    if (data instanceof URLSearchParams) {
-      data.set(key, value)
-    } else if (typeof FormData !== 'undefined' && data instanceof FormData) {
-      data.set(key, value)
-    } else {
-      data[key] = value
-    }
-  }
-
   private getAction(query?: unknown, body?: unknown) {
-    const action =
-      this.getParam(query, 'action') ?? this.getParam(body, 'action')
+    const action = getParam(query, 'action') ?? getParam(body, 'action')
     return action === undefined ? undefined : String(action)
-  }
-
-  private toStringArray(value: unknown): string[] {
-    if (value === undefined || value === null) return []
-    if (Array.isArray(value)) {
-      return value.map((item) => String(item)).filter(Boolean)
-    }
-    return String(value)
-      .split('|')
-      .map((item) => item.trim())
-      .filter(Boolean)
   }
 
   private isLoginTokenRequest(query?: unknown, body?: unknown): boolean {
     const check = (data: unknown) => {
       if (!data) return false
-      const action = this.getParam(data, 'action')
-      // action=query is required for meta=tokens
-      if (action && String(action) !== 'query') return false
-      // If action is implicit (undefined), we assume it's NOT query-like enough for this check?
-      // MediaWiki requires action=query for tokens.
-      if (!action) return false
-
-      const meta = this.toStringArray(this.getParam(data, 'meta'))
-      if (!meta.includes('tokens')) return false
-
-      const types = this.toStringArray(this.getParam(data, 'type'))
-      return types.includes('login')
+      const action = getParam(data, 'action')
+      if (!action || String(action) !== 'query') return false
+      if (!toStringArray(getParam(data, 'meta')).includes('tokens')) return false
+      return toStringArray(getParam(data, 'type')).includes('login')
     }
-
     return check(query) || check(body)
   }
 
-  private shouldSkipAutoRelogin(query?: unknown, body?: unknown) {
-    const action = this.getAction(query, body)
-    if (action === 'login') return true
-    if (this.isLoginTokenRequest(query, body)) {
-      return true
-    }
-    return false
-  }
-
-  private isAssertUserFailed(data: any) {
-    const isAssertFailedCode = (code: string) =>
-      code === 'assertuserfailed' || code === 'assertnameduserfailed'
-    if (MediaWikiApiError.is(data)) {
-      return data.errors.some((error) => isAssertFailedCode(error.code))
-    }
-    return WikiSaikouError.extractMediaWikiApiErrors(data).some((error) =>
-      isAssertFailedCode(error.code)
+  private shouldSkipAutoRelogin(query?: unknown, body?: unknown): boolean {
+    return (
+      this.getAction(query, body) === 'login' ||
+      this.isLoginTokenRequest(query, body)
     )
   }
 
-  private async reloginIfNeeded() {
+  private isAssertUserFailed(data: unknown): boolean {
+    const errors = MediaWikiApiError.is(data)
+      ? data.errors
+      : WikiSaikouError.extractMediaWikiApiErrors(data)
+    return errors.some((error) => isAssertFailedCode(error.code))
+  }
+
+  private async reloginIfNeeded(): Promise<void> {
     if (!this.canAutoRelogin() || !this.loginCredentials) return
-    if (this.inflightRelogin) {
-      return this.inflightRelogin
-    }
+    if (this.inflightRelogin) return this.inflightRelogin
+
     const epoch = this.sessionEpoch
     const { lgname, lgpassword, autoReloginRetries } = this.loginCredentials
     const pending = this.performLogin(
       lgname,
       lgpassword,
-      void 0,
-      {
-        autoRelogin: true,
-        autoReloginRetries,
-      },
+      undefined,
+      { autoRelogin: true, autoReloginRetries },
       epoch
     )
       .then(() => undefined)
       .catch((err) => {
-        if ((err as any)?.[STALE_SESSION_ERROR]) {
-          return undefined
-        }
+        if (isStaleSessionError(err)) return undefined
         throw err
       })
       .finally(() => {
@@ -222,6 +203,7 @@ export class MediaWikiApi extends WikiSaikouCore {
           this.inflightRelogin = undefined
         }
       })
+
     this.inflightRelogin = pending
     return pending
   }
@@ -236,24 +218,20 @@ export class MediaWikiApi extends WikiSaikouCore {
     if (!this.canAutoRelogin()) return ctx
     const { query, body } = ctx.request
 
-    if (this.shouldSkipAutoRelogin(query, body)) return ctx
-
     if (
-      this.hasParam(query, 'assertuser') ||
-      this.hasParam(body, 'assertuser')
+      this.shouldSkipAutoRelogin(query, body) ||
+      hasParam(query, 'assertuser') ||
+      hasParam(body, 'assertuser')
     ) {
       return ctx
     }
 
-    const assertUser = this.getAssertUser()!
-
+    const assertUser = this.loginCredentials!.username
     if (body !== undefined && body !== null) {
-      this.setParam(body, 'assertuser', assertUser)
+      setParam(body, 'assertuser', assertUser)
     } else {
-      if (!ctx.request.query) {
-        ctx.request.query = {}
-      }
-      this.setParam(ctx.request.query, 'assertuser', assertUser)
+      ctx.request.query ??= {}
+      setParam(ctx.request.query, 'assertuser', assertUser)
     }
     return ctx
   }
@@ -263,19 +241,16 @@ export class MediaWikiApi extends WikiSaikouCore {
   ): Promise<FexiosFinalContext<MwApiResponse<T>> | Response> {
     if (!this.canAutoRelogin()) return ctx
     const { query, body } = ctx.request
-    if (this.shouldSkipAutoRelogin(query, body)) {
-      return ctx
-    }
     if (
-      !this.hasParam(query, 'assertuser') &&
-      !this.hasParam(body, 'assertuser')
+      this.shouldSkipAutoRelogin(query, body) ||
+      (!hasParam(query, 'assertuser') && !hasParam(body, 'assertuser')) ||
+      !this.isAssertUserFailed(ctx.data)
     ) {
       return ctx
     }
-    if (!this.isAssertUserFailed(ctx.data)) return ctx
 
     const attempt = Number(ctx.runtime.customEnv?.autoReloginAttempt ?? 0)
-    const maxAttempts = this.getAutoReloginRetries()
+    const maxAttempts = this.loginCredentials?.autoReloginRetries ?? 3
     if (attempt >= maxAttempts) return ctx
 
     const origAbortController = ctx.runtime.abortController
@@ -292,46 +267,29 @@ export class MediaWikiApi extends WikiSaikouCore {
       return ctx
     }
 
-    const { rawRequest, ...requestOptions } = ctx.request as any
+    const { rawRequest: _rawRequest, ...requestOptions } = ctx.request
     const prevEnv = ctx.runtime.customEnv
     const nextEnv =
       prevEnv && typeof prevEnv === 'object' && !Array.isArray(prevEnv)
         ? { ...prevEnv, autoReloginAttempt: attempt + 1 }
         : { autoReloginAttempt: attempt + 1 }
 
-    const retryResponse = await this.request.request({
+    const retryOptions: Partial<FexiosRequestOptions> & { url: string } = {
       ...requestOptions,
       ...(origAbortController ? { abortController: origAbortController } : {}),
       url: ctx.request.url,
       customEnv: nextEnv,
-    })
-
-    return retryResponse ?? ctx
+    }
+    return (await this.request.request(retryOptions)) ?? ctx
   }
 
   async login(
     lgname: string,
     lgpassword: string,
     params?: MwApiParams,
-    postOptions?: {
-      retry?: number
-      noCache?: boolean
-      autoRelogin?: boolean
-      autoReloginRetries?: number
-    }
-  ): Promise<{
-    result: 'Success' | 'NeedToken' | 'WrongToken' | 'Failed'
-    token?: string
-    reason?: {
-      code: string
-      text: string
-    }
-    lguserid: number
-    lgusername: string
-  }> {
-    const loginEpoch = ++this.sessionEpoch
-    this.inflightRelogin = undefined
-    this.clearInflightTokens()
+    postOptions?: MediaWikiLoginOptions
+  ): Promise<MediaWikiLoginResult> {
+    const loginEpoch = this.advanceSessionEpoch()
     return this.performLogin(lgname, lgpassword, params, postOptions, loginEpoch)
   }
 
@@ -339,25 +297,13 @@ export class MediaWikiApi extends WikiSaikouCore {
     lgname: string,
     lgpassword: string,
     params: MwApiParams | undefined,
-    postOptions:
-      | {
-          retry?: number
-          noCache?: boolean
-          autoRelogin?: boolean
-          autoReloginRetries?: number
-        }
-      | undefined,
+    postOptions: MediaWikiLoginOptions | undefined,
     loginEpoch: number
-  ): Promise<{
-    result: 'Success' | 'NeedToken' | 'WrongToken' | 'Failed'
-    token?: string
-    reason?: {
-      code: string
-      text: string
+  ): Promise<MediaWikiLoginResult> {
+    if (loginEpoch !== this.sessionEpoch) {
+      throw createStaleSessionError()
     }
-    lguserid: number
-    lgusername: string
-  }> {
+
     this.config.fexiosConfigs.credentials = 'include'
 
     const {
@@ -368,22 +314,13 @@ export class MediaWikiApi extends WikiSaikouCore {
     if (tokenOptions.noCache === undefined) {
       tokenOptions.noCache = true
     }
+
     const res = await this.postWithToken(
       'login',
-      {
-        action: 'login',
-        lgname,
-        lgpassword,
-        ...params,
-      },
+      { action: 'login', lgname, lgpassword, ...params },
       {
         tokenName: 'lgtoken',
         ...tokenOptions,
-        fexiosOptions: {
-          customEnv: {
-            [SESSION_EPOCH_ENV]: loginEpoch,
-          },
-        },
       }
     )
 
@@ -399,9 +336,7 @@ export class MediaWikiApi extends WikiSaikouCore {
     }
 
     if (loginEpoch !== this.sessionEpoch) {
-      throw Object.assign(new Error('Stale session epoch'), {
-        [STALE_SESSION_ERROR]: true,
-      })
+      throw createStaleSessionError()
     }
 
     if (autoRelogin === true) {
@@ -409,7 +344,7 @@ export class MediaWikiApi extends WikiSaikouCore {
       this.loginCredentials = {
         lgname,
         lgpassword,
-        username: data?.login?.lgusername,
+        username: data.login.lgusername,
         autoReloginRetries:
           Number.isFinite(autoReloginRetries) && autoReloginRetries >= 0
             ? Math.floor(autoReloginRetries)
@@ -423,21 +358,15 @@ export class MediaWikiApi extends WikiSaikouCore {
   }
 
   async logout(): Promise<void> {
-    this.sessionEpoch++
+    this.advanceSessionEpoch()
     this.autoReloginEnabled = false
     this.loginCredentials = undefined
-    this.inflightRelogin = undefined
-    this.clearInflightTokens()
-    // optional, tell MediaWiki server to drop the session
-    await this.postWithToken('csrf', {
-      action: 'logout',
-    }).catch(() => {
-      // ignore logout errors
+    await this.postWithToken('csrf', { action: 'logout' }).catch(() => {
+      // Ignore server-side logout failures
     })
     this.tokens.clear()
     this.request.cookieJar?.clear()
   }
 }
 
-// alias
 export { MediaWikiApi as MwApi, MediaWikiApi as MediaWikiNodeClient }

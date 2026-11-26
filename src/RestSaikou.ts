@@ -5,52 +5,30 @@ import type {
   FexiosRequestOptions,
 } from 'fexios'
 import { deepMerge, Fexios } from 'fexios'
+import type { RetryDelayOption, ShouldRetryOption } from './internals/backoff.js'
+import { inferMediaWikiEndpoint } from './internals/params.js'
+import { runWithRetryAndAbort } from './internals/retry.js'
 import { WikiSaikouError, WikiSaikouErrorCode } from './models/errors.js'
-import {
-  createAbortError,
-  linkAbortSignals,
-  normalizeRetryCount,
-  withTrackedAbortAndResponse,
-  type RetryDelayOption,
-  type ShouldRetryOption,
-  useRetry,
-} from './utils/useRetry.js'
 
 export interface MediaWikiRestApiConfig {
   /**
-   * MediaWiki REST API endpoint base URL.
-   *
-   * Accepts:
-   * - `https://example.org/w/rest.php`
-   * - `https://example.org/w/rest.php/`
-   *
-   * It will be normalized to always end with `/`, and query/hash will be stripped
-   * to avoid leaking into requests.
+   * MediaWiki REST API endpoint base URL (normalized to end with `/`, query/hash stripped).
+   * Accepts `https://example.org/w/rest.php` or `https://example.org/w/rest.php/`.
    */
   baseURL?: string
   /**
-   * Transport/runtime options passed to the underlying Fexios instance (headers, fetch, credentials, etc.).
-   *
-   * Notes:
-   * - For REST, the default response parsing should be auto-detected (no forced `responseType`).
-   * - If you explicitly set `responseType` here (even `undefined`), it will be honored.
+   * Transport/runtime options passed to the underlying Fexios instance.
+   * By default, response parsing is auto-detected unless `responseType` is explicitly set.
    */
   fexiosConfigs?: Partial<FexiosConfigs>
-  /**
-   * Default maximum total attempts (initial request + retries).
-   * @default 1
-   */
+  /** Default maximum total attempts (initial request + retries). @default 1 */
   retry?: number
-  /**
-   * Default delay in milliseconds (or backoff callback) between retry attempts.
-   */
+  /** Default delay in milliseconds (or backoff callback) between retry attempts. */
   retryDelay?: RetryDelayOption
-  /**
-   * Callback invoked before each scheduled retry attempt.
-   */
+  /** Callback invoked before each scheduled retry attempt. */
   onRetry?: (error: Error, retryCount: number) => void
   /**
-   * Optional predicate allowing callers to decide whether a failed request should be retried.
+   * Optional predicate controlling whether a failed request should be retried.
    * By default, transport/network errors are NOT retried by the SDK.
    */
   shouldRetry?: ShouldRetryOption
@@ -69,11 +47,12 @@ export type MediaWikiRestRequestOptions = Partial<
   }
 >
 
+const hasOwn = (obj: object, key: PropertyKey) =>
+  Object.prototype.hasOwnProperty.call(obj, key)
+
 /**
- * MediaWikiRestApi
- *
- * A standalone REST (rest.php) client. It does NOT extend `WikiSaikouCore`,
- * because REST and Action API have almost no reusable request semantics.
+ * Standalone MediaWiki REST (`rest.php`) client.
+ * Does not extend `WikiSaikouCore` because REST and Action API have distinct semantics.
  */
 export class MediaWikiRestApi {
   readonly config: Required<
@@ -85,15 +64,10 @@ export class MediaWikiRestApi {
   readonly http: Fexios
 
   constructor(config: MediaWikiRestApiInitConfig) {
-    const fexiosConfigs = (config.fexiosConfigs || {}) as Partial<FexiosConfigs>
-    const baseURL =
-      config.baseURL ??
-      (typeof window !== 'undefined'
-        ? this.inferRestBaseURLFromMediaWikiConfig()
-        : undefined)
+    const fexiosConfigs: Partial<FexiosConfigs> = config.fexiosConfigs || {}
+    const baseURL = config.baseURL ?? inferMediaWikiEndpoint('rest.php/')
     const normalizedRestEndpoint = this.normalizeRestBaseURL(baseURL)
 
-    // Store normalized baseURL as the canonical config value.
     this.config = {
       baseURL: normalizedRestEndpoint,
       fexiosConfigs,
@@ -103,35 +77,22 @@ export class MediaWikiRestApi {
       shouldRetry: config.shouldRetry,
     }
 
-    // Prefer creating a dedicated plain Fexios instance for REST (no MW-specific hooks).
     this.http = new Fexios(
       deepMerge<Partial<FexiosConfigs>>({}, fexiosConfigs, {
         baseURL: normalizedRestEndpoint,
-      }) as any
+      })
     )
 
-    // Default behavior: auto-detect response type (important for non-JSON endpoints like HTML).
-    // Only honor responseType when user explicitly provides it.
-    if (!Object.prototype.hasOwnProperty.call(fexiosConfigs, 'responseType')) {
-      delete (this.http.baseConfigs as any).responseType
+    // Auto-detect responseType by default; only honor it when explicitly provided.
+    if (!hasOwn(fexiosConfigs, 'responseType')) {
+      delete this.http.baseConfigs.responseType
     } else {
-      ;(this.http.baseConfigs as any).responseType = (
-        fexiosConfigs as any
-      ).responseType
+      this.http.baseConfigs.responseType = fexiosConfigs.responseType
     }
   }
 
   /**
    * Low-level request to REST endpoint.
-   *
-   * @example
-   * ```ts
-   * const res = await api.request('GET', '/v1/page/{title}', {
-   *   pathParams: { title: 'Main Page' },
-   *   query: { redirect: 'true' },
-   * })
-   * console.log(res.data)
-   * ```
    */
   async request<T = any>(
     method: FexiosMethods,
@@ -145,112 +106,81 @@ export class MediaWikiRestApi {
       onRetry = this.config.onRetry,
       shouldRetry = this.config.shouldRetry,
       signal,
-      abortController: existingController,
+      abortController,
       ...restOptions
     } = options || {}
-    const finalPath = this.resolvePath(path, pathParams)
-    const url = this.buildRestUrl(finalPath)
 
-    // Note: deepMerge won't override with `undefined`, so we must handle responseType specially:
-    // - default: auto-detect (remove responseType)
-    // - if user explicitly provides responseType (even undefined), honor it
+    const finalPath = this.resolvePath(path, pathParams)
+    const url = /^https?:\/\//i.test(finalPath)
+      ? finalPath
+      : finalPath.replace(/^\//, '')
+
     const merged = deepMerge<Partial<FexiosRequestOptions>>(
       {},
       this.config.fexiosConfigs as Partial<FexiosRequestOptions>,
       restOptions
-    ) as any
-
-    const hasRequestResponseType = Object.prototype.hasOwnProperty.call(
-      restOptions,
-      'responseType'
     )
-    const hasClientResponseType = Object.prototype.hasOwnProperty.call(
+
+    // deepMerge skips `undefined`, so handle explicit responseType specially
+    const hasRequestResponseType = hasOwn(restOptions, 'responseType')
+    const hasClientResponseType = hasOwn(
       this.config.fexiosConfigs,
       'responseType'
     )
-
     if (!hasRequestResponseType && !hasClientResponseType) {
       delete merged.responseType
     } else if (hasRequestResponseType) {
-      merged.responseType = (restOptions as any).responseType
+      merged.responseType = restOptions.responseType
     }
 
-    const { signal: effectiveSignal, cleanup } = linkAbortSignals(
+    return runWithRetryAndAbort({
+      options: merged,
+      baseFetch: this.http.baseConfigs.fetch,
       signal,
-      existingController?.signal
-    )
-    try {
-      const doRequest = () =>
-        withTrackedAbortAndResponse(
-          merged,
-          this.http.baseConfigs.fetch,
-          signal,
-          existingController,
-          (opts) =>
-            this.http.request<T>({
-              ...opts,
-              url,
-              method,
-            })
-        )
-
-      const maxAttempts = normalizeRetryCount(retry)
-      if (maxAttempts <= 1 || !shouldRetry) {
-        if (effectiveSignal?.aborted) {
-          throw createAbortError(effectiveSignal)
-        }
-        return await doRequest()
-      }
-      return await useRetry(doRequest, {
-        retry: maxAttempts,
-        retryDelay,
-        onRetry,
-        signal: effectiveSignal,
-        shouldRetry,
-      })
-    } finally {
-      cleanup()
-    }
+      abortController,
+      retryPolicy: { retry, retryDelay, onRetry, shouldRetry },
+      execute: (opts) => this.http.request<T>({ ...opts, url, method }),
+    })
   }
 
   async get<T = any>(path: string, options?: MediaWikiRestRequestOptions) {
-    return await this.request<T>('GET', path, options)
+    return this.request<T>('GET', path, options)
   }
 
   async delete<T = any>(path: string, options?: MediaWikiRestRequestOptions) {
-    return await this.request<T>('DELETE', path, options)
+    return this.request<T>('DELETE', path, options)
   }
 
   async post<T = any>(
     path: string,
-    body?: any,
+    body?: unknown,
     options?: MediaWikiRestRequestOptions
   ) {
-    return await this.request<T>('POST', path, {
+    return this.request<T>('POST', path, {
       ...options,
-      body,
+      body: body as FexiosRequestOptions['body'],
     })
   }
 
   async put<T = any>(
     path: string,
-    body?: any,
+    body?: unknown,
     options?: MediaWikiRestRequestOptions
   ) {
-    return await this.request<T>('PUT', path, {
+    return this.request<T>('PUT', path, {
       ...options,
-      body,
+      body: body as FexiosRequestOptions['body'],
     })
   }
 
   async patch<T = any>(
     path: string,
-    body?: any,
+    body?: unknown,
     options?: MediaWikiRestRequestOptions
   ) {
-    return await this.request<T>('PATCH', path, {
+    return this.request<T>('PATCH', path, {
       ...options,
-      body,
+      body: body as FexiosRequestOptions['body'],
     })
   }
 
@@ -258,19 +188,14 @@ export class MediaWikiRestApi {
     path: string,
     pathParams?: Record<string, string>
   ): string {
-    const requiredKeys = Array.from(path.matchAll(/\{([^{}]+)\}/g)).map(
-      (m) => m[1]
-    )
-
+    const requiredKeys = Array.from(path.matchAll(/\{([^{}]+)\}/g), (m) => m[1])
     const provided = new Set(Object.keys(pathParams || {}))
     const missing = requiredKeys.filter((k) => !provided.has(k))
 
     if (missing.length) {
       throw new WikiSaikouError(
         WikiSaikouErrorCode.INVALID_REST_PATH,
-        `The REST path "${path}" is invalid, missing parameters: ${missing.join(
-          ', '
-        )}`
+        `The REST path "${path}" is invalid, missing parameters: ${missing.join(', ')}`
       )
     }
 
@@ -279,14 +204,7 @@ export class MediaWikiRestApi {
         path = path.replaceAll(`{${key}}`, encodeURIComponent(value))
       }
     }
-
     return path
-  }
-
-  private buildRestUrl(path: string): string {
-    // Absolute URL: send as-is
-    if (/^https?:\/\//i.test(path)) return path
-    return path.replace(/^\//, '')
   }
 
   private normalizeRestBaseURL(baseURL?: string): string {
@@ -298,27 +216,20 @@ export class MediaWikiRestApi {
     }
 
     const raw = baseURL.trim()
-    const hasLocationProtocol = Boolean(
-      (globalThis as any).location?.protocol &&
-        typeof (globalThis as any).location?.protocol === 'string'
-    )
+    const locationProtocol = (
+      globalThis as { location?: { protocol?: unknown } }
+    ).location?.protocol
 
-    // Only accept:
-    // - absolute http(s) URL: https://example.org/w/rest.php/
-    // - (browser only) protocol-relative URL: //example.org/w/rest.php/
-    // Reject all relative URLs (e.g. /rest.php, rest.php) to avoid silent resolution.
     let absoluteInput = raw
-    if (/^https?:\/\//i.test(raw)) {
-      // ok
-    } else if (/^\/\//.test(raw)) {
-      if (!hasLocationProtocol) {
+    if (raw.startsWith('//')) {
+      if (typeof locationProtocol !== 'string' || !locationProtocol) {
         throw new WikiSaikouError(
           WikiSaikouErrorCode.INVALID_REST_ENDPOINT,
           `Invalid REST baseURL "${baseURL}". Protocol-relative URL is only supported in browser environments. Please pass an absolute URL like "https://example.org/w/rest.php/".`
         )
       }
-      absoluteInput = `${(globalThis as any).location.protocol}${raw}`
-    } else {
+      absoluteInput = `${locationProtocol}${raw}`
+    } else if (!/^https?:\/\//i.test(raw)) {
       throw new WikiSaikouError(
         WikiSaikouErrorCode.INVALID_REST_ENDPOINT,
         `Invalid REST baseURL "${baseURL}". Please pass an absolute URL like "https://example.org/w/rest.php/".`
@@ -344,27 +255,8 @@ export class MediaWikiRestApi {
 
     u.search = ''
     u.hash = ''
-
     const href = u.toString()
-    return /\/$/.test(href) ? href : href + '/'
-  }
-
-  private inferRestBaseURLFromMediaWikiConfig(): string | undefined {
-    try {
-      const { wgServer, wgScriptPath } =
-        (window as any).mediaWiki?.config?.get(['wgServer', 'wgScriptPath']) ||
-        {}
-      if (typeof wgServer !== 'string' || typeof wgScriptPath !== 'string') {
-        return undefined
-      }
-      let url = `${wgServer}${wgScriptPath}/rest.php/`
-      if (url.startsWith('//')) {
-        url = `${window.location.protocol}${url}`
-      }
-      return url
-    } catch {
-      return undefined
-    }
+    return href.endsWith('/') ? href : `${href}/`
   }
 }
 

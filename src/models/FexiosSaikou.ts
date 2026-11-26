@@ -1,7 +1,7 @@
 import { Fexios, FexiosQueryBuilder } from 'fexios'
 import { MwParamNormalizer } from './MwParamNormalizer.js'
 import { WikiSaikouError } from './errors.js'
-import { MwTokenName } from '../types.js'
+import type { MwTokenName } from '../types.js'
 
 export interface FexiosSaikou extends Fexios {
   _tokens: Map<string, string>
@@ -10,19 +10,17 @@ export interface FexiosSaikou extends Fexios {
 const FEXIOS_SAIKOU_MARKER = Symbol.for('__FEXIOS_SAIKOU__')
 export const SKIP_TOKEN_STORE = Symbol.for('__WIKI_SAIKOU_SKIP_TOKEN_STORE__')
 
+type TaggedObject = Record<PropertyKey, unknown>
+
+const BODY_PREFERRED_QUERY_KEYS = ['format', 'formatversion', 'action'] as const
+
 /**
  * FexiosSaikou
  *
  * A pre-configured Fexios instance with MediaWiki-friendly defaults:
  * - MediaWiki-specific request/response params normalization
  * - built-in token management
- * - error handling
- *
- * @author dragon-fish <dragon-fish@qq.com>
- * @license MIT
- *
- * @param {string|URL} payload create a new FexiosSaikou instance with the given baseURL
- * @param {Fexios} payload or make the given Fexios instance a FexiosSaikou instance
+ * - CORS origin handling
  */
 export function createFexiosSaikou(
   payload: string | URL | Fexios
@@ -37,54 +35,40 @@ export function createFexiosSaikou(
         })
   ) as FexiosSaikou
 
-  if ((instance as any)[FEXIOS_SAIKOU_MARKER]) {
+  if ((instance as unknown as TaggedObject)[FEXIOS_SAIKOU_MARKER]) {
     return instance
-  } else {
-    Reflect.defineProperty(instance, FEXIOS_SAIKOU_MARKER, {
-      get: () => true,
-      enumerable: false,
-      configurable: false,
-    })
   }
-
-  // Adjust request body for POST requests
-  instance.on('beforeInit', (ctx) => {
-    if (ctx.request.method?.toLowerCase() !== 'post') {
-      return ctx
-    }
-
-    if (ctx.request.body === void 0 || ctx.request.body === null) {
-      ctx.request.body = void 0
-      return ctx
-    }
-
-    const body = (ctx.request.body = MwParamNormalizer.normalizeBody(
-      ctx.request.body
-    )!)
-
-    // Remove duplicate params: prefer body over query for these keys
-    const query = new URLSearchParams(ctx.request.query as any)
-    if (body.has('format')) {
-      query.delete('format')
-    }
-    if (body.has('formatversion')) {
-      query.delete('formatversion')
-    }
-    if (body.has('action')) {
-      query.delete('action')
-    }
-    // `origin` must be in query due to CORS requirements
-    if (body.has('origin')) {
-      query.set('origin', '' + body.get('origin'))
-      body.delete('origin')
-    }
-    ctx.request.query = Object.fromEntries(query.entries())
-
-    return ctx
+  Reflect.defineProperty(instance, FEXIOS_SAIKOU_MARKER, {
+    get: () => true,
+    enumerable: false,
+    configurable: false,
   })
 
-  // Normalize query into FormData-like object
+  // Normalize POST body and query parameters into MediaWiki-friendly formats
   instance.on('beforeInit', (ctx) => {
+    if (ctx.request.method?.toLowerCase() === 'post') {
+      if (ctx.request.body === undefined || ctx.request.body === null) {
+        ctx.request.body = undefined
+      } else {
+        const body = MwParamNormalizer.normalizeBody(ctx.request.body)!
+        ctx.request.body = body
+
+        const query = FexiosQueryBuilder.makeSearchParams(
+          ctx.request.query as Record<string, unknown> | URLSearchParams
+        )
+        // Prefer body over query for shared MediaWiki envelope keys
+        for (const key of BODY_PREFERRED_QUERY_KEYS) {
+          if (body.has(key)) query.delete(key)
+        }
+        // `origin` must be in query due to CORS requirements
+        if (body.has('origin')) {
+          query.set('origin', String(body.get('origin')))
+          body.delete('origin')
+        }
+        ctx.request.query = Object.fromEntries(query.entries())
+      }
+    }
+
     ctx.request.query = FexiosQueryBuilder.mergeQueries(
       {},
       MwParamNormalizer.normalizeBody(ctx.request.query)
@@ -92,31 +76,26 @@ export function createFexiosSaikou(
     return ctx
   })
 
-  // Adjust origin parameter and CORS related runtime configs
+  // Adjust `origin` parameter and per-request CORS settings
   instance.on('beforeRequest', (ctx) => {
-    const url = new URL(ctx.request.url!)
-    // Convert ctx.query to a plain object for easier manipulation
+    const url = new URL(ctx.request.url)
     const query = FexiosQueryBuilder.mergeQueries(url.searchParams, ctx.query)
 
-    // Automatically add/remove origin based on current location and baseURL
     if (globalThis.location) {
       if (!query.origin && location.origin !== url.origin) {
         query.origin = location.origin
-        instance.baseConfigs.credentials = 'include'
-        instance.baseConfigs.mode = 'cors'
+        ctx.request.credentials ??= 'include'
+        ctx.request.mode ??= 'cors'
       } else if (location.origin === url.origin) {
         delete query.origin
-        instance.baseConfigs.credentials = undefined
-        instance.baseConfigs.mode = undefined
       }
     }
 
     if (query.origin) {
       const origin = encodeURIComponent(query.origin).replace(/\./g, '%2E')
-      // Remove origin from query record, it will be added to URL directly
       delete query.origin
       ctx.request.query = query
-      // Append origin to URL directly with proper encoding
+      // Append origin directly with strict dot-encoding expected by MediaWiki
       ctx.request.url = `${url.origin}${url.pathname}?origin=${origin}`
     } else {
       ctx.request.query = query
@@ -124,26 +103,27 @@ export function createFexiosSaikou(
     return ctx
   })
 
-  // Token handler
+  // Cache returned tokens and evict stale tokens on badtoken errors
   instance._tokens = new Map<MwTokenName, string>()
   instance.on('afterResponse', (ctx) => {
-    if ((ctx.runtime as any)?.[SKIP_TOKEN_STORE]) {
+    if ((ctx.runtime as unknown as TaggedObject)?.[SKIP_TOKEN_STORE]) {
       return ctx
     }
     const { data } = ctx
-    // Remove bad token
-    const tokenName = ctx.runtime.customEnv?.mwTokenName as MwTokenName
+    const tokenName = ctx.runtime.customEnv?.mwTokenName as
+      | MwTokenName
+      | undefined
     if (tokenName && WikiSaikouError.isBadTokenError(data)) {
       instance._tokens.delete(tokenName)
     }
 
-    // Store new tokens
     const tokens = data?.query?.tokens
     if (tokens && typeof tokens === 'object') {
-      Object.entries(tokens).forEach(([type, token]) => {
-        typeof token === 'string' &&
+      for (const [type, token] of Object.entries(tokens)) {
+        if (typeof token === 'string') {
           instance._tokens.set(type.replace(/token$/i, '').toLowerCase(), token)
-      })
+        }
+      }
     }
     const loginToken = data?.login?.token
     if (typeof loginToken === 'string') {
