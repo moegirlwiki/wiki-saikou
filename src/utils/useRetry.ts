@@ -7,7 +7,7 @@ import {
 
 const noop = () => {}
 
-const createAbortError = (signal?: AbortSignal): Error => {
+export const createAbortError = (signal?: AbortSignal): Error => {
   if (signal?.reason instanceof Error) {
     return signal.reason
   }
@@ -16,6 +16,28 @@ const createAbortError = (signal?: AbortSignal): Error => {
   )
   err.name = 'AbortError'
   return err
+}
+
+export const raceWithSignal = <T>(
+  promise: Promise<T>,
+  signal?: AbortSignal
+): Promise<T> => {
+  if (!signal) return promise
+  if (signal.aborted) return Promise.reject(createAbortError(signal))
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(createAbortError(signal))
+    signal.addEventListener('abort', onAbort, { once: true })
+    promise.then(
+      (val) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(val)
+      },
+      (err) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(err)
+      }
+    )
+  })
 }
 
 const sleep = (ms: number, signal?: AbortSignal): Promise<void> => {
@@ -63,10 +85,9 @@ const extractResponseStatus = (error: unknown): number | undefined => {
   return candidates.find((s): s is number => typeof s === 'number')
 }
 
-export const isRetryableTransportError = (
+const checkRetryableTransportError = (
   error: unknown,
-  visited = new Set<unknown>(),
-  extraStatuses?: ReadonlySet<number>
+  visited = new Set<unknown>()
 ): boolean => {
   if (!error || MediaWikiApiError.is(error) || visited.has(error)) {
     return false
@@ -76,20 +97,14 @@ export const isRetryableTransportError = (
     if (error.code !== WikiSaikouErrorCode.HTTP_ERROR) {
       return false
     }
-    return error.cause
-      ? isRetryableTransportError(error.cause, visited, extraStatuses)
-      : true
+    return error.cause ? checkRetryableTransportError(error.cause, visited) : true
   }
   const status = extractResponseStatus(error)
   if (status !== undefined) {
-    return isRetryableStatus(status) || Boolean(extraStatuses?.has(status))
+    return isRetryableStatus(status)
   }
   if (FexiosResponseError.is(error)) {
-    const respStatus = error.response?.status
-    return (
-      isRetryableStatus(respStatus) ||
-      (typeof respStatus === 'number' && Boolean(extraStatuses?.has(respStatus)))
-    )
+    return isRetryableStatus(error.response?.status)
   }
   if (FexiosError.is(error)) {
     if (error.code === FexiosErrorCodes.NETWORK_ERROR) {
@@ -97,7 +112,7 @@ export const isRetryableTransportError = (
         return true
       }
       return error.cause
-        ? isRetryableTransportError(error.cause, visited, extraStatuses)
+        ? checkRetryableTransportError(error.cause, visited)
         : false
     }
     return (
@@ -108,22 +123,22 @@ export const isRetryableTransportError = (
   if (error instanceof TypeError && NETWORK_TYPE_ERROR_RE.test(error.message)) {
     return true
   }
-  const errCode = (error as { code?: unknown; cause?: { code?: unknown } })
-    ?.code
+  const errCode = (error as { code?: unknown })?.code
   if (typeof errCode === 'string' && TRANSIENT_ERROR_CODES.has(errCode)) {
     return true
   }
   const cause = (error as { cause?: unknown })?.cause
-  return cause !== undefined
-    ? isRetryableTransportError(cause, visited, extraStatuses)
-    : false
+  return cause !== undefined ? checkRetryableTransportError(cause, visited) : false
 }
 
-const RETRYABLE_MW_ERROR_CODES = new Set(['maxlag'])
+export const isRetryableTransportError = (error: unknown): boolean =>
+  checkRetryableTransportError(error)
 
 export type RetryDelayOption =
   | number
   | ((error: Error, retryCount: number) => number)
+
+export type ShouldRetryOption = (error: Error, retryCount: number) => boolean
 
 export interface RetryDelayOptions {
   /** Initial backoff delay in milliseconds. @default 100 */
@@ -138,29 +153,6 @@ export interface RetryDelayOptions {
    */
   jitter?: number | boolean
 }
-
-export const isRetryableMediaWikiError = (
-  error: unknown,
-  visited = new Set<unknown>(),
-  extraErrorCodes?: ReadonlySet<string>
-): boolean => {
-  if (!error || visited.has(error)) return false
-  visited.add(error)
-  if (MediaWikiApiError.is(error)) {
-    return error.errors.some(
-      (e) =>
-        RETRYABLE_MW_ERROR_CODES.has(e.code) ||
-        Boolean(extraErrorCodes?.has(e.code))
-    )
-  }
-  if (WikiSaikouError.is(error) && error.cause) {
-    return isRetryableMediaWikiError(error.cause, visited, extraErrorCodes)
-  }
-  return false
-}
-
-export const isRetryableRequestError = (error: unknown): boolean =>
-  isRetryableTransportError(error) || isRetryableMediaWikiError(error)
 
 export const parseRetryAfterMs = (
   error: unknown,
@@ -212,10 +204,8 @@ export const createRetryDelay = (
     if (retryAfter !== undefined) {
       return retryAfter
     }
-    if (!isRetryableRequestError(error) && !WikiSaikouError.is(error, WikiSaikouErrorCode.HTTP_ERROR)) {
-      if (WikiSaikouError.isBadTokenError(error) || (error as any)?.ok === false) {
-        return 0
-      }
+    if (WikiSaikouError.isBadTokenError(error) || (error as any)?.ok === false) {
+      return 0
     }
     const base = Math.min(maxDelayMs, baseDelayMs * 2 ** retryCount)
     if (jitterRatio > 0) {
@@ -225,44 +215,34 @@ export const createRetryDelay = (
   }
 }
 
-export const defaultTransportRetryDelay = (
-  error: Error,
-  retryCount: number
-): number => {
-  if (!isRetryableRequestError(error)) {
-    return 0
+export const defaultTransportRetryDelay = createRetryDelay()
+
+export const normalizeRetryCount = (retry: number): number => {
+  if (!Number.isFinite(retry) || !Number.isInteger(retry)) {
+    throw new RangeError('retry must be a finite integer')
   }
-  const retryAfter = parseRetryAfterMs(error)
-  if (retryAfter !== undefined) {
-    return retryAfter
-  }
-  return Math.min(5000, 100 * 2 ** retryCount)
+  return retry
 }
 
 export const useRetry = async <T>(
   fn: () => Promise<T>,
   options: {
     retry?: number
-    retryDelay?: number | ((error: Error, retryCount: number) => number)
+    retryDelay?: RetryDelayOption
     onRetry?: (error: Error, retryCount: number) => void
-    shouldRetry?: (error: Error, retryCount: number) => boolean
+    shouldRetry?: ShouldRetryOption
     signal?: AbortSignal
-    maxRetryTime?: number
   }
 ): Promise<T> => {
-  let retryCount = 0
   const {
     retry = 3,
     retryDelay = 0,
     onRetry = noop,
     shouldRetry = () => true,
     signal,
-    maxRetryTime,
   } = options
-  if (!Number.isFinite(retry)) {
-    throw new RangeError('retry must be a finite number')
-  }
-  const startTime = Date.now()
+  const maxAttempts = normalizeRetryCount(retry)
+  let retryCount = 0
   let lastError: unknown
   do {
     if (signal?.aborted) {
@@ -273,32 +253,21 @@ export const useRetry = async <T>(
     } catch (error) {
       lastError = error
       const err = error as Error
-      if (shouldRetry(err, retryCount)) {
-        if (retryCount + 1 < retry) {
-          const delay =
-            typeof retryDelay === 'function'
-              ? retryDelay(err, retryCount)
-              : retryDelay
-          const safeDelay =
-            Number.isFinite(delay) && delay > 0 ? delay : 0
-          if (
-            maxRetryTime !== undefined &&
-            Date.now() - startTime + safeDelay > maxRetryTime
-          ) {
-            throw error
-          }
-          onRetry(err, retryCount)
-          if (safeDelay > 0) {
-            await sleep(safeDelay, signal)
-          }
-        } else {
-          onRetry(err, retryCount)
+      if (retryCount + 1 < maxAttempts && shouldRetry(err, retryCount)) {
+        const delay =
+          typeof retryDelay === 'function'
+            ? retryDelay(err, retryCount)
+            : retryDelay
+        const safeDelay = Number.isFinite(delay) && delay > 0 ? delay : 0
+        onRetry(err, retryCount)
+        if (safeDelay > 0) {
+          await sleep(safeDelay, signal)
         }
         retryCount++
       } else {
         throw error
       }
     }
-  } while (retryCount < retry)
+  } while (retryCount < maxAttempts)
   throw (lastError as Error) || new Error('Retry failed')
 }

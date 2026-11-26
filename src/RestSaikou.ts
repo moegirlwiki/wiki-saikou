@@ -7,9 +7,10 @@ import type {
 import { deepMerge, Fexios } from 'fexios'
 import { WikiSaikouError, WikiSaikouErrorCode } from './models/errors.js'
 import {
-  defaultTransportRetryDelay,
-  isRetryableTransportError,
+  createAbortError,
+  normalizeRetryCount,
   type RetryDelayOption,
+  type ShouldRetryOption,
   useRetry,
 } from './utils/useRetry.js'
 
@@ -34,7 +35,7 @@ export interface MediaWikiRestApiConfig {
    */
   fexiosConfigs?: Partial<FexiosConfigs>
   /**
-   * Default maximum attempts for transient network/gateway errors.
+   * Default maximum total attempts (initial request + retries).
    * @default 1
    */
   retry?: number
@@ -43,26 +44,14 @@ export interface MediaWikiRestApiConfig {
    */
   retryDelay?: RetryDelayOption
   /**
-   * Allow retrying non-idempotent REST writes (`POST`/`PUT`/`PATCH`/`DELETE`) on ambiguous transport failures.
-   * @default false
-   */
-  retryOnTransportError?: boolean
-  /**
-   * Callback invoked before each retry attempt.
+   * Callback invoked before each scheduled retry attempt.
    */
   onRetry?: (error: Error, retryCount: number) => void
   /**
-   * Custom predicate controlling whether a failed request should be retried.
+   * Optional predicate allowing callers to decide whether a failed request should be retried.
+   * By default, transport/network errors are NOT retried by the SDK.
    */
-  shouldRetry?: (error: Error, retryCount: number) => boolean
-  /**
-   * Additional HTTP status codes to treat as retryable (e.g. `[408]`).
-   */
-  retryableStatuses?: number[]
-  /**
-   * Maximum total duration in milliseconds spent across retry attempts and backoff delays.
-   */
-  maxRetryTime?: number
+  shouldRetry?: ShouldRetryOption
 }
 
 export type MediaWikiRestApiInitConfig = MediaWikiRestApiConfig
@@ -72,11 +61,8 @@ export type MediaWikiRestRequestOptions = Partial<
     pathParams?: Record<string, string>
     retry?: number
     retryDelay?: RetryDelayOption
-    retryOnTransportError?: boolean
     onRetry?: (error: Error, retryCount: number) => void
-    shouldRetry?: (error: Error, retryCount: number) => boolean
-    retryableStatuses?: number[]
-    maxRetryTime?: number
+    shouldRetry?: ShouldRetryOption
     signal?: AbortSignal
   }
 >
@@ -89,15 +75,9 @@ export type MediaWikiRestRequestOptions = Partial<
  */
 export class MediaWikiRestApi {
   readonly config: Required<
-    Pick<
-      MediaWikiRestApiConfig,
-      'baseURL' | 'fexiosConfigs' | 'retry' | 'retryDelay' | 'retryOnTransportError'
-    >
+    Pick<MediaWikiRestApiConfig, 'baseURL' | 'fexiosConfigs'>
   > &
-    Omit<
-      MediaWikiRestApiConfig,
-      'baseURL' | 'fexiosConfigs' | 'retry' | 'retryDelay' | 'retryOnTransportError'
-    >
+    Omit<MediaWikiRestApiConfig, 'baseURL' | 'fexiosConfigs'>
 
   /** Underlying HTTP client (Fexios). */
   readonly http: Fexios
@@ -115,13 +95,10 @@ export class MediaWikiRestApi {
     this.config = {
       baseURL: normalizedRestEndpoint,
       fexiosConfigs,
-      retry: config.retry ?? 1,
-      retryDelay: config.retryDelay ?? defaultTransportRetryDelay,
-      retryOnTransportError: config.retryOnTransportError ?? false,
+      retry: config.retry,
+      retryDelay: config.retryDelay,
       onRetry: config.onRetry,
       shouldRetry: config.shouldRetry,
-      retryableStatuses: config.retryableStatuses,
-      maxRetryTime: config.maxRetryTime,
     }
 
     // Prefer creating a dedicated plain Fexios instance for REST (no MW-specific hooks).
@@ -161,13 +138,11 @@ export class MediaWikiRestApi {
   ): Promise<FexiosFinalContext<T>> {
     const {
       pathParams,
-      retry = this.config.retry,
-      retryDelay = this.config.retryDelay,
-      retryOnTransportError = this.config.retryOnTransportError,
+      retry = this.config.retry ?? 1,
+      retryDelay = this.config.retryDelay ?? 0,
       onRetry = this.config.onRetry,
-      shouldRetry: customShouldRetry = this.config.shouldRetry,
-      retryableStatuses = this.config.retryableStatuses,
-      maxRetryTime = this.config.maxRetryTime,
+      shouldRetry = this.config.shouldRetry,
+      signal,
       ...restOptions
     } = options || {}
     const finalPath = this.resolvePath(path, pathParams)
@@ -197,35 +172,45 @@ export class MediaWikiRestApi {
       merged.responseType = (restOptions as any).responseType
     }
 
-    const doRequest = () =>
-      this.http.request<T>({
-        ...merged,
-        url,
-        method,
-      })
-
-    if (!Number.isFinite(retry)) {
-      throw new RangeError('retry must be a finite number')
+    const doRequest = () => {
+      if (!signal || merged.abortController) {
+        return this.http.request<T>({
+          ...merged,
+          url,
+          method,
+        })
+      }
+      if (signal.aborted) {
+        return Promise.reject(createAbortError(signal))
+      }
+      const controller = new AbortController()
+      const onAbort = () => controller.abort(signal.reason)
+      signal.addEventListener('abort', onAbort, { once: true })
+      return this.http
+        .request<T>({
+          ...merged,
+          abortController: controller,
+          url,
+          method,
+        })
+        .finally(() => {
+          signal.removeEventListener('abort', onAbort)
+        })
     }
-    const allowTransportRetry =
-      Boolean(retryOnTransportError) ||
-      ['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())
-    if (!allowTransportRetry || retry <= 1) {
+
+    const maxAttempts = normalizeRetryCount(retry)
+    if (maxAttempts <= 1 || !shouldRetry) {
+      if (signal?.aborted) {
+        throw createAbortError(signal)
+      }
       return await doRequest()
     }
-    const extraStatuses = retryableStatuses?.length
-      ? new Set(retryableStatuses)
-      : undefined
     return await useRetry(doRequest, {
-      retry,
+      retry: maxAttempts,
       retryDelay,
       onRetry,
-      signal: (restOptions as { signal?: AbortSignal }).signal ?? undefined,
-      maxRetryTime,
-      shouldRetry: (error, retryCount) =>
-        customShouldRetry
-          ? customShouldRetry(error, retryCount)
-          : isRetryableTransportError(error, undefined, extraStatuses),
+      signal,
+      shouldRetry,
     })
   }
 

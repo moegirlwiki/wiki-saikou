@@ -8,12 +8,16 @@ import { createFexiosSaikou, FexiosSaikou } from './models/FexiosSaikou.js'
 import { resolveLegacyCtor } from './utils/resolveLegacyCtor.js'
 import { deepMerge } from './utils/deepMerge.js'
 import {
+  createAbortError,
   createRetryDelay,
   defaultTransportRetryDelay,
-  isRetryableMediaWikiError,
   isRetryableTransportError,
+  normalizeRetryCount,
+  parseRetryAfterMs,
+  raceWithSignal,
   type RetryDelayOption,
   type RetryDelayOptions,
+  type ShouldRetryOption,
   useRetry,
 } from './utils/useRetry.js'
 import {
@@ -56,8 +60,8 @@ export interface WikiSaikouConfig {
    */
   throwOnApiError: boolean
   /**
-   * Default maximum attempts for transient network/gateway errors (and `maxlag` when `throwOnApiError=true`).
-   * When omitted, `get`/`post`/REST default to `1` and `postWithToken` defaults to `3`.
+   * Default maximum total attempts (initial request + retries).
+   * When omitted, `get`/`post` default to `1` and `postWithToken` defaults to `3`.
    */
   retry?: number
   /**
@@ -65,32 +69,14 @@ export interface WikiSaikouConfig {
    */
   retryDelay?: RetryDelayOption
   /**
-   * Allow retrying non-idempotent POST writes on ambiguous transport/gateway failures
-   * (e.g. `fetch failed`, timeouts, HTTP 5xx). Disabled by default to prevent duplicate writes.
-   * Read-only `GET` and `action=query` `POST` requests always retry transport failures when `retry > 1`.
-   * @default false
-   */
-  retryOnTransportError?: boolean
-  /**
-   * Callback invoked before each retry attempt.
+   * Callback invoked before each scheduled retry attempt.
    */
   onRetry?: (error: Error, retryCount: number) => void
   /**
-   * Custom predicate controlling whether a failed request should be retried.
+   * Optional predicate allowing callers to decide whether a failed request (e.g. network/fetch error)
+   * should be retried. By default, transport/network errors are NOT retried by the SDK.
    */
-  shouldRetry?: (error: Error, retryCount: number) => boolean
-  /**
-   * Additional MediaWiki API error codes to treat as retryable (e.g. `['ratelimited']`).
-   */
-  retryableErrorCodes?: string[]
-  /**
-   * Additional HTTP status codes to treat as retryable (e.g. `[408]`).
-   */
-  retryableStatuses?: number[]
-  /**
-   * Maximum total duration in milliseconds spent across retry attempts and backoff delays.
-   */
-  maxRetryTime?: number
+  shouldRetry?: ShouldRetryOption
 }
 
 export type WikiSaikouInitConfig = Omit<
@@ -103,7 +89,7 @@ export type WikiSaikouInitConfig = Omit<
 export interface WikiSaikouRequestOptions
   extends Partial<FexiosRequestOptions> {
   /**
-   * Maximum number of attempts for transient network/gateway errors (including `fetch failed`, timeouts, and HTTP 429/5xx).
+   * Maximum total attempts (initial request + retries).
    * @default 1
    */
   retry?: number
@@ -112,32 +98,16 @@ export interface WikiSaikouRequestOptions
    */
   retryDelay?: RetryDelayOption
   /**
-   * Allow retrying non-idempotent POST writes on ambiguous transport/gateway failures.
-   * @default false (or `config.retryOnTransportError`)
-   */
-  retryOnTransportError?: boolean
-  /**
-   * Callback invoked before each retry attempt.
+   * Callback invoked before each scheduled retry attempt.
    */
   onRetry?: (error: Error, retryCount: number) => void
   /**
-   * Custom predicate controlling whether a failed request should be retried.
+   * Predicate controlling whether a failed request should be retried.
+   * By default, transport/network errors are NOT retried by the SDK.
    */
-  shouldRetry?: (error: Error, retryCount: number) => boolean
+  shouldRetry?: ShouldRetryOption
   /**
-   * Additional MediaWiki API error codes to treat as retryable.
-   */
-  retryableErrorCodes?: string[]
-  /**
-   * Additional HTTP status codes to treat as retryable.
-   */
-  retryableStatuses?: number[]
-  /**
-   * Maximum total duration in milliseconds spent across retry attempts and backoff delays.
-   */
-  maxRetryTime?: number
-  /**
-   * AbortSignal used to cancel both the underlying request and retry backoff sleeps.
+   * AbortSignal used to cancel both the in-flight request (via Fexios `abortController`) and retry backoff sleeps.
    */
   signal?: AbortSignal
 }
@@ -149,10 +119,11 @@ export interface WikiSaikouRequestOptions
  * @license MIT
  */
 export class WikiSaikouCore {
-  readonly config: Required<WikiSaikouConfig>
+  readonly config: WikiSaikouConfig
   readonly version = import.meta.env.__VERSION__
   readonly request: FexiosSaikou
   private inflightTokenRequests = new Map<MwTokenName, Promise<string>>()
+  private inflightForcedTokenRequests = new Map<MwTokenName, Promise<string>>()
 
   static INIT_DEFAULT_PARAMS: MwApiParams = {
     action: 'query',
@@ -160,7 +131,7 @@ export class WikiSaikouCore {
     format: 'json',
     formatversion: 2,
   }
-  static DEFAULT_CONFIGS: Required<WikiSaikouConfig> = {
+  static DEFAULT_CONFIGS: WikiSaikouConfig = {
     baseURL: undefined as unknown as string,
     restApiEndpoint: undefined as unknown as string,
     fexiosConfigs: {
@@ -168,17 +139,6 @@ export class WikiSaikouCore {
     },
     defaultParams: this.INIT_DEFAULT_PARAMS,
     throwOnApiError: false,
-    retry: undefined as unknown as number,
-    retryDelay: defaultTransportRetryDelay,
-    retryOnTransportError: false,
-    onRetry: undefined as unknown as (error: Error, retryCount: number) => void,
-    shouldRetry: undefined as unknown as (
-      error: Error,
-      retryCount: number
-    ) => boolean,
-    retryableErrorCodes: undefined as unknown as string[],
-    retryableStatuses: undefined as unknown as number[],
-    maxRetryTime: undefined as unknown as number,
   }
 
   /** @deprecated Use `new MediaWikiApi(config)` instead */
@@ -207,71 +167,60 @@ export class WikiSaikouCore {
     return this
   }
 
-  /** Base methods encapsulation */
-  private isReadOnlyPost(
-    data: MwApiParams | URLSearchParams | FormData
-  ): boolean {
-    let action: unknown
-    if (typeof FormData !== 'undefined' && data instanceof FormData) {
-      action = data.get('action')
-    } else if (data instanceof URLSearchParams) {
-      action = data.get('action')
-    } else if (data && typeof data === 'object') {
-      action = (data as MwApiParams).action
+  private withLinkedAbortController<T>(
+    options: Partial<FexiosRequestOptions>,
+    signal: AbortSignal | undefined,
+    fn: (opts: Partial<FexiosRequestOptions>) => Promise<T>
+  ): Promise<T> {
+    if (!signal || options.abortController) {
+      return fn(options)
     }
-    const effectiveAction = action ?? this.config.defaultParams?.action
-    return effectiveAction === 'query'
+    if (signal.aborted) {
+      return Promise.reject(createAbortError(signal))
+    }
+    const controller = new AbortController()
+    const onAbort = () => controller.abort(signal.reason)
+    signal.addEventListener('abort', onAbort, { once: true })
+    return fn({ ...options, abortController: controller }).finally(() => {
+      signal.removeEventListener('abort', onAbort)
+    })
   }
 
-  private runWithTransportRetry<T = any>(
+  private runWithRetry<T = any>(
     doRequest: () => Promise<FexiosFinalContext<MwApiResponse<T>>>,
     retryOptions: {
       retry?: number
       retryDelay?: RetryDelayOption
-      allowTransportRetry?: boolean
       onRetry?: (error: Error, retryCount: number) => void
-      shouldRetry?: (error: Error, retryCount: number) => boolean
-      retryableErrorCodes?: string[]
-      retryableStatuses?: number[]
-      maxRetryTime?: number
+      shouldRetry?: ShouldRetryOption
       signal?: AbortSignal
     }
   ): Promise<FexiosFinalContext<MwApiResponse<T>>> {
     const {
       retry = this.config.retry ?? 1,
-      retryDelay = this.config.retryDelay,
-      allowTransportRetry = true,
+      retryDelay = this.config.retryDelay ?? 0,
       onRetry = this.config.onRetry,
-      shouldRetry: customShouldRetry = this.config.shouldRetry,
-      retryableErrorCodes = this.config.retryableErrorCodes,
-      retryableStatuses = this.config.retryableStatuses,
-      maxRetryTime = this.config.maxRetryTime,
+      shouldRetry = this.config.shouldRetry,
       signal,
     } = retryOptions
-    if (!Number.isFinite(retry)) {
-      return Promise.reject(new RangeError('retry must be a finite number'))
+    let maxAttempts: number
+    try {
+      maxAttempts = normalizeRetryCount(retry)
+    } catch (err) {
+      return Promise.reject(err)
     }
-    if (retry <= 1) {
+    if (maxAttempts <= 1 || !shouldRetry) {
+      if (signal?.aborted) {
+        return Promise.reject(createAbortError(signal))
+      }
       return this.runRequestWithApiErrorMapping(doRequest)
     }
-    const extraErrorCodes = retryableErrorCodes?.length
-      ? new Set(retryableErrorCodes)
-      : undefined
-    const extraStatuses = retryableStatuses?.length
-      ? new Set(retryableStatuses)
-      : undefined
     return useRetry(() => this.runRequestWithApiErrorMapping(doRequest), {
-      retry,
+      retry: maxAttempts,
       retryDelay,
       onRetry,
+      shouldRetry,
       signal,
-      maxRetryTime,
-      shouldRetry: (error, retryCount) =>
-        customShouldRetry
-          ? customShouldRetry(error, retryCount)
-          : isRetryableMediaWikiError(error, undefined, extraErrorCodes) ||
-            (allowTransportRetry &&
-              isRetryableTransportError(error, undefined, extraStatuses)),
     })
   }
 
@@ -282,12 +231,9 @@ export class WikiSaikouCore {
     const {
       retry,
       retryDelay,
-      retryOnTransportError: _ignored,
       onRetry,
       shouldRetry,
-      retryableErrorCodes,
-      retryableStatuses,
-      maxRetryTime,
+      signal,
       ...fexiosOptions
     } = options || {}
     const payload = deepMerge<Partial<FexiosRequestOptions>>(
@@ -301,19 +247,12 @@ export class WikiSaikouCore {
       },
       fexiosOptions
     )
-    return this.runWithTransportRetry(
-      () => this.request.get<MwApiResponse<T>>('', payload),
-      {
-        retry,
-        retryDelay,
-        allowTransportRetry: true,
-        onRetry,
-        shouldRetry,
-        retryableErrorCodes,
-        retryableStatuses,
-        maxRetryTime,
-        signal: (fexiosOptions as { signal?: AbortSignal }).signal ?? undefined,
-      }
+    return this.runWithRetry(
+      () =>
+        this.withLinkedAbortController(payload, signal, (opts) =>
+          this.request.get<MwApiResponse<T>>('', opts)
+        ),
+      { retry, retryDelay, onRetry, shouldRetry, signal }
     )
   }
   async post<T = any>(
@@ -323,41 +262,25 @@ export class WikiSaikouCore {
     const {
       retry,
       retryDelay,
-      retryOnTransportError = this.config.retryOnTransportError,
       onRetry,
       shouldRetry,
-      retryableErrorCodes,
-      retryableStatuses,
-      maxRetryTime,
+      signal,
       ...fexiosOptions
     } = options || {}
-    const allowTransportRetry =
-      Boolean(retryOnTransportError) || this.isReadOnlyPost(data)
-    return this.runWithTransportRetry(
-      () =>
-        this.request.post<MwApiResponse<T>>(
-          '',
-          data,
-          deepMerge<Partial<FexiosRequestOptions>>(
-            {},
-            this.config.fexiosConfigs as Partial<FexiosRequestOptions>,
-            {
-              query: this.config.defaultParams,
-            },
-            fexiosOptions
-          )
-        ),
+    const payload = deepMerge<Partial<FexiosRequestOptions>>(
+      {},
+      this.config.fexiosConfigs as Partial<FexiosRequestOptions>,
       {
-        retry,
-        retryDelay,
-        allowTransportRetry,
-        onRetry,
-        shouldRetry,
-        retryableErrorCodes,
-        retryableStatuses,
-        maxRetryTime,
-        signal: (fexiosOptions as { signal?: AbortSignal }).signal ?? undefined,
-      }
+        query: this.config.defaultParams,
+      },
+      fexiosOptions
+    )
+    return this.runWithRetry(
+      () =>
+        this.withLinkedAbortController(payload, signal, (opts) =>
+          this.request.post<MwApiResponse<T>>('', data, opts)
+        ),
+      { retry, retryDelay, onRetry, shouldRetry, signal }
     )
   }
 
@@ -431,27 +354,45 @@ export class WikiSaikouCore {
     noCache = false,
     options?: WikiSaikouRequestOptions
   ) {
+    const signal = options?.signal
+    if (signal?.aborted) {
+      return Promise.reject(createAbortError(signal))
+    }
+
     if (!noCache) {
       const cached = this.tokens.get(type)
       if (cached) {
         return cached
       }
-      const inflight = this.inflightTokenRequests.get(type)
+      const inflight =
+        this.inflightTokenRequests.get(type) ??
+        this.inflightForcedTokenRequests.get(type)
       if (inflight) {
-        return inflight
+        return raceWithSignal(inflight, signal)
+      }
+    } else {
+      const inflightForced = this.inflightForcedTokenRequests.get(type)
+      if (inflightForced) {
+        return raceWithSignal(inflightForced, signal)
       }
     }
 
-    this.tokens.delete(type)
-    const pending = this.fetchTokens([type], options)
+    if (noCache) {
+      this.tokens.delete(type)
+    }
+    const { signal: _callerSignal, ...fetchOptions } = options || {}
+    const map = noCache
+      ? this.inflightForcedTokenRequests
+      : this.inflightTokenRequests
+    const pending = this.fetchTokens([type], fetchOptions)
       .then(() => this.tokens.get(type)!)
       .finally(() => {
-        if (this.inflightTokenRequests.get(type) === pending) {
-          this.inflightTokenRequests.delete(type)
+        if (map.get(type) === pending) {
+          map.delete(type)
         }
       })
-    this.inflightTokenRequests.set(type, pending)
-    return pending
+    map.set(type, pending)
+    return raceWithSignal(pending, signal)
   }
   badToken(type: MwTokenName) {
     this.tokens.delete(type)
@@ -489,12 +430,8 @@ export class WikiSaikouCore {
       tokenName?: string
       retry?: number
       retryDelay?: RetryDelayOption
-      retryOnTransportError?: boolean
       onRetry?: (error: Error, retryCount: number) => void
-      shouldRetry?: (error: Error, retryCount: number) => boolean
-      retryableErrorCodes?: string[]
-      retryableStatuses?: number[]
-      maxRetryTime?: number
+      shouldRetry?: ShouldRetryOption
       signal?: AbortSignal
       noCache?: boolean
       fexiosOptions?: Partial<FexiosRequestOptions>
@@ -503,30 +440,16 @@ export class WikiSaikouCore {
     const {
       tokenName = 'token',
       retry = this.config.retry ?? 3,
-      retryDelay = this.config.retryDelay,
-      retryOnTransportError = this.config.retryOnTransportError,
+      retryDelay = this.config.retryDelay ?? 0,
       onRetry: userOnRetry = this.config.onRetry,
       shouldRetry: customShouldRetry = this.config.shouldRetry,
-      retryableErrorCodes = this.config.retryableErrorCodes,
-      retryableStatuses = this.config.retryableStatuses,
-      maxRetryTime = this.config.maxRetryTime,
-      signal = (options?.fexiosOptions as { signal?: AbortSignal } | undefined)?.signal ?? undefined,
+      signal,
       noCache = false,
       fexiosOptions,
     } = options || {}
-    const allowPostTransportRetry =
-      Boolean(retryOnTransportError) || this.isReadOnlyPost(body)
-    const extraErrorCodes = retryableErrorCodes?.length
-      ? new Set(retryableErrorCodes)
-      : undefined
-    const extraStatuses = retryableStatuses?.length
-      ? new Set(retryableStatuses)
-      : undefined
 
-    if (!Number.isFinite(retry)) {
-      throw new RangeError('retry must be a finite number')
-    }
-    if (retry < 1) {
+    const maxAttempts = normalizeRetryCount(retry)
+    if (maxAttempts < 1) {
       throw new WikiSaikouError(
         WikiSaikouErrorCode.TOKEN_RETRY_LIMIT_EXCEEDED,
         'The limit of the number of times to automatically re-acquire the token has been exceeded'
@@ -537,68 +460,35 @@ export class WikiSaikouCore {
     let shouldRefreshToken = noCache
     return useRetry<FexiosFinalContext<MwApiResponse<T>>>(
       async () => {
-        let token: string
-        try {
-          token = await this.getToken(
-            tokenType,
-            shouldRefreshToken || (attemptIndex > 0 && !this.tokens.get(tokenType)),
-            { retry: 1, signal }
-          )
-        } catch (err: any) {
-          // Token acquisition is a read-only GET (action=query&meta=tokens):
-          // safe to retry on transient transport errors even when write retry is disabled.
-          if (isRetryableTransportError(err, undefined, extraStatuses)) {
-            throw Object.assign(
-              new WikiSaikouError(
-                WikiSaikouErrorCode.HTTP_ERROR,
-                'Network/transport error while fetching token',
-                err
-              ),
-              { __wikiSaikouTokenFetchError: true }
-            )
-          }
-          throw err
-        }
+        const token = await this.getToken(
+          tokenType,
+          shouldRefreshToken || (attemptIndex > 0 && !this.tokens.get(tokenType)),
+          { retry: 1, signal }
+        )
 
-        try {
-          const ctx = await this.post<MwApiResponse<T>>(
-            this.attachTokenToBody(body, tokenName, token),
-            deepMerge<WikiSaikouRequestOptions>(fexiosOptions || {}, {
-              retry: 1,
-              signal,
-              customEnv: {
-                mwTokenName: tokenType,
-              },
-            })
-          )
+        const ctx = await this.post<MwApiResponse<T>>(
+          this.attachTokenToBody(body, tokenName, token),
+          deepMerge<WikiSaikouRequestOptions>(fexiosOptions || {}, {
+            retry: 1,
+            signal,
+            customEnv: {
+              mwTokenName: tokenType,
+            },
+          })
+        )
 
-          if (WikiSaikouError.isBadTokenError(ctx.data)) {
-            throw new MediaWikiApiError(
-              WikiSaikouError.extractMediaWikiApiErrors(ctx.data),
-              ctx
-            )
-          }
-          return ctx
-        } catch (err: any) {
-          if (WikiSaikouError.isBadTokenError(err) || err?.ok === false) {
-            throw err
-          } else if (MediaWikiApiError.is(err)) {
-            // MW 业务错误，直接透传
-            throw err
-          } else {
-            throw new WikiSaikouError(
-              WikiSaikouErrorCode.HTTP_ERROR,
-              'Network/transport or SDK-internal error (not a MediaWiki API error)',
-              err
-            )
-          }
+        if (WikiSaikouError.isBadTokenError(ctx.data)) {
+          throw new MediaWikiApiError(
+            WikiSaikouError.extractMediaWikiApiErrors(ctx.data),
+            ctx
+          )
         }
+        return ctx
       },
       {
-        retry,
+        retry: maxAttempts,
         retryDelay,
         signal,
-        maxRetryTime,
         onRetry: (error, count) => {
           attemptIndex = count + 1
           shouldRefreshToken =
@@ -611,19 +501,11 @@ export class WikiSaikouCore {
           if (WikiSaikouError.isBadTokenError(error) || (error as any)?.ok === false) {
             return true
           }
-          if (customShouldRetry) {
-            return customShouldRetry(error, count)
-          }
-          return (
-            isRetryableMediaWikiError(error, undefined, extraErrorCodes) ||
-            ((Boolean((error as any)?.__wikiSaikouTokenFetchError) ||
-              allowPostTransportRetry) &&
-              isRetryableTransportError(error, undefined, extraStatuses))
-          )
+          return customShouldRetry ? customShouldRetry(error, count) : false
         },
       }
     ).catch((err) => {
-      // Map exhausted retry of retryable errors into SDK-level error
+      // Map exhausted retry of token-related errors into SDK-level error
       if (WikiSaikouError.isBadTokenError(err) || (err as any)?.ok === false) {
         throw new WikiSaikouError(
           WikiSaikouErrorCode.TOKEN_RETRY_LIMIT_EXCEEDED,
@@ -631,7 +513,7 @@ export class WikiSaikouCore {
           err as any
         )
       }
-      // For non-retryable errors like MediaWikiApiError, keep propagation as is
+      // Propagate transport, MediaWikiApiError, or other errors untouched
       throw err
     })
   }
@@ -667,8 +549,12 @@ export * from './models/MwParamNormalizer.js'
 export * from './types.js'
 export {
   createRetryDelay,
+  defaultTransportRetryDelay,
+  isRetryableTransportError,
+  parseRetryAfterMs,
   type RetryDelayOption,
   type RetryDelayOptions,
+  type ShouldRetryOption,
 } from './utils/useRetry.js'
 export * from 'fexios'
 
