@@ -12,6 +12,7 @@ import {
   createRetryDelay,
   defaultTransportRetryDelay,
   isRetryableTransportError,
+  linkAbortSignals,
   normalizeRetryCount,
   parseRetryAfterMs,
   raceWithSignal,
@@ -247,6 +248,10 @@ export class WikiSaikouCore {
       fexiosOptions
     )
     this.preserveCustomEnvSymbols(payload, fexiosOptions.customEnv)
+    const { signal: effectiveSignal, cleanup } = linkAbortSignals(
+      signal,
+      abortController?.signal
+    )
     return this.runWithRetry(
       () =>
         withTrackedAbortAndResponse(
@@ -256,8 +261,8 @@ export class WikiSaikouCore {
           abortController,
           (opts) => this.request.get<MwApiResponse<T>>('', opts)
         ),
-      { retry, retryDelay, onRetry, shouldRetry, signal: signal ?? abortController?.signal }
-    )
+      { retry, retryDelay, onRetry, shouldRetry, signal: effectiveSignal }
+    ).finally(cleanup)
   }
   async post<T = any>(
     data: MwApiParams | URLSearchParams | FormData,
@@ -281,6 +286,10 @@ export class WikiSaikouCore {
       fexiosOptions
     )
     this.preserveCustomEnvSymbols(payload, fexiosOptions.customEnv)
+    const { signal: effectiveSignal, cleanup } = linkAbortSignals(
+      signal,
+      abortController?.signal
+    )
     return this.runWithRetry(
       () =>
         withTrackedAbortAndResponse(
@@ -290,8 +299,8 @@ export class WikiSaikouCore {
           abortController,
           (opts) => this.request.post<MwApiResponse<T>>('', data, opts)
         ),
-      { retry, retryDelay, onRetry, shouldRetry, signal: signal ?? abortController?.signal }
-    )
+      { retry, retryDelay, onRetry, shouldRetry, signal: effectiveSignal }
+    ).finally(cleanup)
   }
 
   /**
@@ -473,7 +482,10 @@ export class WikiSaikouCore {
       )
     }
     const maxAttempts = normalizeRetryCount(retry)
-    const effectiveSignal = signal ?? fexiosOptions?.abortController?.signal
+    const { signal: effectiveSignal, cleanup } = linkAbortSignals(
+      signal,
+      fexiosOptions?.abortController?.signal
+    )
 
     let attemptIndex = 0
     let shouldRefreshToken = noCache
@@ -490,6 +502,7 @@ export class WikiSaikouCore {
           ...restFexiosOptions
         } = fexiosOptions || {}
         const postOptions = deepMerge<WikiSaikouRequestOptions>(
+          {},
           restFexiosOptions,
           {
             retry: 1,
@@ -547,7 +560,7 @@ export class WikiSaikouCore {
       }
       // Propagate transport, MediaWikiApiError, or other errors untouched
       throw err
-    })
+    }).finally(cleanup)
   }
   postWithEditToken<T = any>(
     body: MwApiParams

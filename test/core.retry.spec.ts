@@ -954,5 +954,100 @@ describe('MediaWikiApi retry & cancellation', () => {
       )
     ).rejects.toMatchObject({ name: 'AbortError' })
     expect(acTokenCalls).to.equal(1)
+
+    // 13. parseRetryAfterMs reads error.context.* headers and ignores whitespace-only Retry-After
+    expect(
+      parseRetryAfterMs({
+        context: { response: { headers: new Headers({ 'retry-after': '4' }) } },
+      })
+    ).to.equal(4000)
+    expect(
+      parseRetryAfterMs({
+        context: { rawResponse: { headers: { 'Retry-After': '2' } } },
+      })
+    ).to.equal(2000)
+    expect(
+      parseRetryAfterMs({
+        response: { headers: new Headers({ 'retry-after': '   ' }) },
+      })
+    ).to.equal(undefined)
+
+    // 14. Passing both signal and abortController aborts immediately if only abortController aborts
+    for (const mode of ['get', 'postWithToken', 'rest'] as const) {
+      let dualCalls = 0
+      const sigCtrl = new AbortController()
+      const acCtrl = new AbortController()
+      const dualFetch = async () => {
+        dualCalls++
+        acCtrl.abort()
+        throw new TypeError('network down')
+      }
+      if (mode === 'rest') {
+        const rest = new MediaWikiRestApi({
+          baseURL: 'https://example.org/w/rest.php/',
+          fexiosConfigs: { fetch: dualFetch as any },
+        })
+        await expect(
+          rest.get('/v1/page/Test', {
+            retry: 4,
+            retryDelay: 0,
+            shouldRetry: () => true,
+            signal: sigCtrl.signal,
+            abortController: acCtrl,
+          })
+        ).rejects.toMatchObject({ name: 'AbortError' })
+      } else if (mode === 'get') {
+        const apiDual = new MediaWikiApi({
+          baseURL: MOCK_API_ENDPOINT_URL.href,
+          fexiosConfigs: { fetch: dualFetch as any },
+        })
+        await expect(
+          apiDual.get(
+            { action: 'query' },
+            {
+              retry: 4,
+              retryDelay: 0,
+              shouldRetry: () => true,
+              signal: sigCtrl.signal,
+              abortController: acCtrl,
+            }
+          )
+        ).rejects.toMatchObject({ name: 'AbortError' })
+      } else {
+        const apiDual = new MediaWikiApi({
+          baseURL: MOCK_API_ENDPOINT_URL.href,
+          fexiosConfigs: { fetch: dualFetch as any },
+        })
+        await expect(
+          apiDual.postWithToken(
+            'csrf',
+            { action: 'edit', title: 'Dual', text: 'x' },
+            {
+              retry: 4,
+              retryDelay: 0,
+              shouldRetry: () => true,
+              signal: sigCtrl.signal,
+              fexiosOptions: { abortController: acCtrl },
+            }
+          )
+        ).rejects.toMatchObject({ name: 'AbortError' })
+      }
+      expect(dualCalls).to.equal(1)
+    }
+
+    // 15. postWithToken does not mutate caller's fexiosOptions.customEnv
+    const callerCustomEnv: Record<string, unknown> = { traceId: 'abc' }
+    const callerFexiosOpts = { customEnv: callerCustomEnv }
+    const apiNoMutate = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: { fetch: mockServer.mockFetch as any },
+    })
+    await apiNoMutate.postWithToken(
+      'csrf',
+      { action: 'edit', title: 'NoMutate', text: 'ok' },
+      { fexiosOptions: callerFexiosOpts }
+    )
+    expect(callerCustomEnv).to.deep.equal({ traceId: 'abc' })
+    expect('mwTokenName' in callerCustomEnv).to.equal(false)
   })
 })

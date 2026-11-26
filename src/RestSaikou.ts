@@ -8,6 +8,7 @@ import { deepMerge, Fexios } from 'fexios'
 import { WikiSaikouError, WikiSaikouErrorCode } from './models/errors.js'
 import {
   createAbortError,
+  linkAbortSignals,
   normalizeRetryCount,
   withTrackedAbortAndResponse,
   type RetryDelayOption,
@@ -174,35 +175,42 @@ export class MediaWikiRestApi {
       merged.responseType = (restOptions as any).responseType
     }
 
-    const effectiveSignal = signal ?? existingController?.signal
-    const doRequest = () =>
-      withTrackedAbortAndResponse(
-        merged,
-        this.http.baseConfigs.fetch,
-        signal,
-        existingController,
-        (opts) =>
-          this.http.request<T>({
-            ...opts,
-            url,
-            method,
-          })
-      )
+    const { signal: effectiveSignal, cleanup } = linkAbortSignals(
+      signal,
+      existingController?.signal
+    )
+    try {
+      const doRequest = () =>
+        withTrackedAbortAndResponse(
+          merged,
+          this.http.baseConfigs.fetch,
+          signal,
+          existingController,
+          (opts) =>
+            this.http.request<T>({
+              ...opts,
+              url,
+              method,
+            })
+        )
 
-    const maxAttempts = normalizeRetryCount(retry)
-    if (maxAttempts <= 1 || !shouldRetry) {
-      if (effectiveSignal?.aborted) {
-        throw createAbortError(effectiveSignal)
+      const maxAttempts = normalizeRetryCount(retry)
+      if (maxAttempts <= 1 || !shouldRetry) {
+        if (effectiveSignal?.aborted) {
+          throw createAbortError(effectiveSignal)
+        }
+        return await doRequest()
       }
-      return await doRequest()
+      return await useRetry(doRequest, {
+        retry: maxAttempts,
+        retryDelay,
+        onRetry,
+        signal: effectiveSignal,
+        shouldRetry,
+      })
+    } finally {
+      cleanup()
     }
-    return await useRetry(doRequest, {
-      retry: maxAttempts,
-      retryDelay,
-      onRetry,
-      signal: effectiveSignal,
-      shouldRetry,
-    })
   }
 
   async get<T = any>(path: string, options?: MediaWikiRestRequestOptions) {

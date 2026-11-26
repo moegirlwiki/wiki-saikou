@@ -19,6 +19,36 @@ export const createAbortError = (signal?: AbortSignal): Error => {
   return err
 }
 
+export const linkAbortSignals = (
+  signal?: AbortSignal,
+  controllerSignal?: AbortSignal
+): { signal?: AbortSignal; cleanup: () => void } => {
+  if (!signal) {
+    return { signal: controllerSignal, cleanup: noop }
+  }
+  if (!controllerSignal || signal === controllerSignal) {
+    return { signal, cleanup: noop }
+  }
+  if (signal.aborted) {
+    return { signal, cleanup: noop }
+  }
+  if (controllerSignal.aborted) {
+    return { signal: controllerSignal, cleanup: noop }
+  }
+  const combined = new AbortController()
+  const onSignalAbort = () => combined.abort(signal.reason)
+  const onControllerAbort = () => combined.abort(controllerSignal.reason)
+  signal.addEventListener('abort', onSignalAbort, { once: true })
+  controllerSignal.addEventListener('abort', onControllerAbort, { once: true })
+  return {
+    signal: combined.signal,
+    cleanup: () => {
+      signal.removeEventListener('abort', onSignalAbort)
+      controllerSignal.removeEventListener('abort', onControllerAbort)
+    },
+  }
+}
+
 export const attachRawResponseSafely = (
   err: unknown,
   rawResponse: Response | undefined
@@ -51,6 +81,9 @@ export const withTrackedAbortAndResponse = <T>(
   if (signal?.aborted) {
     existingController?.abort(signal.reason)
     return Promise.reject(createAbortError(signal))
+  }
+  if (existingController?.signal.aborted) {
+    return Promise.reject(createAbortError(existingController.signal))
   }
 
   let lastResponse: Response | undefined
@@ -248,6 +281,8 @@ export const parseRetryAfterMs = (
     const candidates = [
       current.response?.headers,
       current.rawResponse?.headers,
+      current.context?.response?.headers,
+      current.context?.rawResponse?.headers,
       current.headers,
     ]
     for (const headers of candidates) {
@@ -255,12 +290,14 @@ export const parseRetryAfterMs = (
         typeof headers?.get === 'function'
           ? headers.get('retry-after')
           : headers?.['retry-after'] ?? headers?.['Retry-After']
-      if (raw == null || raw === '') continue
-      const seconds = Number(raw)
+      if (raw == null) continue
+      const trimmed = String(raw).trim()
+      if (!trimmed) continue
+      const seconds = Number(trimmed)
       if (Number.isFinite(seconds) && seconds >= 0) {
         return Math.min(cap, Math.round(seconds * 1000))
       }
-      const dateMs = Date.parse(String(raw))
+      const dateMs = Date.parse(trimmed)
       if (Number.isFinite(dateMs)) {
         return Math.min(cap, Math.max(0, dateMs - Date.now()))
       }
@@ -280,7 +317,11 @@ export const createRetryDelay = (
     jitter = 0,
   } = options
   const jitterRatio =
-    jitter === true ? 0.2 : typeof jitter === 'number' && jitter > 0 ? jitter : 0
+    jitter === true
+      ? 0.2
+      : typeof jitter === 'number' && Number.isFinite(jitter) && jitter > 0
+        ? jitter
+        : 0
 
   return (error: Error, retryCount: number): number => {
     const retryAfter = parseRetryAfterMs(error, maxRetryAfterMs)
