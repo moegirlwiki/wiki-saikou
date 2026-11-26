@@ -473,6 +473,7 @@ export class WikiSaikouCore {
       )
     }
     const maxAttempts = normalizeRetryCount(retry)
+    const effectiveSignal = signal ?? fexiosOptions?.abortController?.signal
 
     let attemptIndex = 0
     let shouldRefreshToken = noCache
@@ -481,7 +482,7 @@ export class WikiSaikouCore {
         const token = await this.getToken(
           tokenType,
           shouldRefreshToken || (attemptIndex > 0 && !this.tokens.get(tokenType)),
-          { signal }
+          { signal: effectiveSignal }
         )
 
         const {
@@ -521,7 +522,7 @@ export class WikiSaikouCore {
       {
         retry: maxAttempts,
         retryDelay,
-        signal,
+        signal: effectiveSignal,
         onRetry: (error, count) => {
           attemptIndex = count + 1
           shouldRefreshToken =

@@ -923,5 +923,36 @@ describe('MediaWikiApi retry & cancellation', () => {
     )
     expect(customEnvRes.data.query.general).to.be.an('object')
     expect(customEnvRes.runtime.customEnv?.sessionEpoch).to.equal(42)
+
+    // 12. postWithToken propagates fexiosOptions.abortController.signal to getToken & retry loop
+    let acTokenCalls = 0
+    const acController = new AbortController()
+    const acTokenFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      const bodyStr = typeof init?.body === 'string' ? init.body : ''
+      if (url.includes('type=csrf') || bodyStr.includes('type=csrf')) {
+        acTokenCalls++
+        acController.abort()
+        throw new TypeError('network down')
+      }
+      return mockServer.mockFetch(input as any, init)
+    }
+    const apiAcToken = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: { fetch: acTokenFetch },
+    })
+    await expect(
+      apiAcToken.postWithToken(
+        'csrf',
+        { action: 'edit', title: 'AcToken', text: 'x' },
+        {
+          retry: 5,
+          retryDelay: 0,
+          shouldRetry: () => true,
+          fexiosOptions: { abortController: acController },
+        }
+      )
+    ).rejects.toMatchObject({ name: 'AbortError' })
+    expect(acTokenCalls).to.equal(1)
   })
 })
