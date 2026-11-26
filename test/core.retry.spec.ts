@@ -756,9 +756,10 @@ describe('MediaWikiApi retry & cancellation', () => {
     expect(rest502Attempts).to.equal(2)
     expect(rest502Res.data.ok).to.equal(true)
 
-    // abortController stops retry loop even if shouldRetry returns true
+    // abortController stops retry loop even if shouldRetry returns true (without invoking onRetry)
     const acOnly = new AbortController()
     let acAttempts = 0
+    let acOnRetryCalls = 0
     const acApi = new MediaWikiApi({
       baseURL: MOCK_API_ENDPOINT_URL.href,
       fexiosConfigs: {
@@ -776,11 +777,15 @@ describe('MediaWikiApi retry & cancellation', () => {
           retry: 5,
           retryDelay: 0,
           shouldRetry: () => true,
+          onRetry: () => {
+            acOnRetryCalls++
+          },
           abortController: acOnly,
         }
       )
     ).rejects.toMatchObject({ name: 'AbortError' })
     expect(acAttempts).to.equal(1)
+    expect(acOnRetryCalls).to.equal(0)
 
     // Retry-After: 0 and HTTP-date
     expect(

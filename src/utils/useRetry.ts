@@ -237,6 +237,10 @@ export const parseRetryAfterMs = (
   error: unknown,
   maxRetryAfterMs = 60000
 ): number | undefined => {
+  const cap =
+    Number.isFinite(maxRetryAfterMs) && maxRetryAfterMs >= 0
+      ? maxRetryAfterMs
+      : 60000
   const visited = new Set<unknown>()
   let current: any = error
   while (current && typeof current === 'object' && !visited.has(current)) {
@@ -254,11 +258,11 @@ export const parseRetryAfterMs = (
       if (raw == null || raw === '') continue
       const seconds = Number(raw)
       if (Number.isFinite(seconds) && seconds >= 0) {
-        return Math.min(maxRetryAfterMs, Math.round(seconds * 1000))
+        return Math.min(cap, Math.round(seconds * 1000))
       }
       const dateMs = Date.parse(String(raw))
       if (Number.isFinite(dateMs)) {
-        return Math.min(maxRetryAfterMs, Math.max(0, dateMs - Date.now()))
+        return Math.min(cap, Math.max(0, dateMs - Date.now()))
       }
     }
     current = current.cause
@@ -330,6 +334,9 @@ export const useRetry = async <T>(
     try {
       return await fn()
     } catch (error) {
+      if (signal?.aborted) {
+        throw createAbortError(signal)
+      }
       lastError = error
       const err = error as Error
       if (retryCount + 1 < maxAttempts && shouldRetry(err, retryCount)) {
