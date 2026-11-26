@@ -153,7 +153,7 @@ interface WikiSaikouConfig {
   - `options`: The options for the request.
     - `tokenName`: The name of the token to use.
     - `retry`: Maximum total attempts including the initial request (default `config.retry ?? 3`, matching `useRetry`'s existing behavior where `3` means 1 initial attempt + up to 2 retries). Automatically retries `badtoken`; transport or other errors are only retried when `shouldRetry(error, retryCount)` returns `true`, and otherwise propagate untouched.
-    - `retryDelay`: Delay in milliseconds (or backoff callback, e.g. `createRetryDelay(...)`) between retry attempts.
+    - `retryDelay`: Delay in milliseconds (or backoff callback, e.g. `createRetryDelay(...)`) between retry attempts. In browsers, `Retry-After` is readable on same-origin requests and on cross-origin MediaWiki responses (which send `Access-Control-Expose-Headers: Retry-After`); if a reverse proxy / WAF omits `Access-Control-Expose-Headers: Retry-After` on a CORS 429/503, `createRetryDelay` falls back to exponential backoff automatically.
     - `onRetry`: Callback invoked before each scheduled retry attempt.
     - `shouldRetry`: Optional predicate `(error, retryCount) => boolean` to opt in to retrying transport/network or custom errors. **Warning:** passing `isRetryableTransportError` at client level or on write requests (`post` / `postWithToken`) will also retry non-idempotent writes on ambiguous transport failures, which may cause duplicate edits if the server already processed the request.
     - `signal`: `AbortSignal` to cancel both in-flight requests and retry backoff sleeps.
