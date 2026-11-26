@@ -138,6 +138,10 @@ export namespace WikiSaikouError {
     if (MediaWikiApiError.is(data)) {
       return data.isBadTokenError()
     } else {
+      const responseData = extractResponseDataFromAny<MwApiResponse>(data)
+      if (['NeedToken', 'WrongToken'].includes(responseData?.login?.result)) {
+        return true
+      }
       const errors = extractMediaWikiApiErrors(data)
       return new MediaWikiApiError(errors).isBadTokenError()
     }
