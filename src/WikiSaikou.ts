@@ -263,6 +263,9 @@ export class WikiSaikouCore {
       const res = await doRequest()
       return this.handleApiResponse(res)
     } catch (err) {
+      if (MediaWikiApiError.is(err)) {
+        throw err
+      }
       // If HTTP is non-2xx but body includes MW API error, convert to MediaWikiApiError
       if (
         this.config.throwOnApiError &&
@@ -277,17 +280,17 @@ export class WikiSaikouCore {
     }
   }
 
-  private throwIfApiError(data?: any) {
-    const errors = WikiSaikouError.extractMediaWikiApiErrors(data)
+  private throwIfApiError(ctxOrData?: any) {
+    const errors = WikiSaikouError.extractMediaWikiApiErrors(ctxOrData)
     if (errors.length > 0) {
-      throw new MediaWikiApiError(errors, data)
+      throw new MediaWikiApiError(errors, ctxOrData)
     }
   }
   private handleApiResponse<T = any>(
     res: FexiosFinalContext<MwApiResponse<T>>
   ) {
     if (this.config.throwOnApiError) {
-      this.throwIfApiError(res.data)
+      this.throwIfApiError(res)
     }
     return res
   }

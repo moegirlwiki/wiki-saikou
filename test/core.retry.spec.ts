@@ -6,7 +6,10 @@ import {
   WikiSaikouError,
   WikiSaikouErrorCode,
 } from '@/node.js'
-import { parseRetryAfterMs } from '../src/utils/useRetry.js'
+import {
+  defaultTransportRetryDelay,
+  parseRetryAfterMs,
+} from '../src/utils/useRetry.js'
 import {
   MOCK_API_ENDPOINT_URL,
   MOCK_MW_PASSWORD,
@@ -344,7 +347,7 @@ describe('MediaWikiApi transport retry', () => {
     expect(loginPosts).to.equal(2)
   })
 
-  it('retries maxlag/ratelimited errors and parses Retry-After header', async () => {
+  it('retries maxlag errors and respects Retry-After header end-to-end', async () => {
     const mockServer = createMockServer()
     let maxlagAttempts = 0
 
@@ -357,19 +360,30 @@ describe('MediaWikiApi transport retry', () => {
             JSON.stringify({
               errors: [{ code: 'maxlag', text: 'Waiting for replication lag' }],
             }),
-            { status: 200, headers: { 'content-type': 'application/json' } }
+            {
+              status: 200,
+              headers: {
+                'content-type': 'application/json',
+                'retry-after': '5',
+              },
+            }
           )
         }
       }
       return mockServer.mockFetch(input as any, init)
     }
 
+    const computedDelays: number[] = []
     const api = new MediaWikiApi({
       baseURL: MOCK_API_ENDPOINT_URL.href,
       fexiosConfigs: { fetch: maxlagFetch },
       throwOnApiError: true,
       retry: 3,
-      retryDelay: 0,
+      retryDelay: (err, count) => {
+        const delay = defaultTransportRetryDelay(err, count)
+        computedDelays.push(delay)
+        return 0
+      },
     })
     await api.login(MOCK_MW_USERNAME, MOCK_MW_PASSWORD)
 
@@ -380,6 +394,7 @@ describe('MediaWikiApi transport retry', () => {
     })
     expect(maxlagAttempts).to.equal(3)
     expect(data.edit.result).to.equal('Success')
+    expect(computedDelays).to.deep.equal([5000, 5000])
 
     const errWithHeader = {
       response: { headers: new Headers({ 'Retry-After': '2' }) },

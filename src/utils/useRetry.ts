@@ -22,7 +22,7 @@ const TRANSIENT_ERROR_CODES = new Set([
 ])
 
 const NETWORK_TYPE_ERROR_RE =
-  /fetch|network|load failed|connection|socket|timed?\s*out/i
+  /^(?:fetch failed|failed to fetch|load failed|network(?:error| error| request failed))|econnreset|etimedout|econnrefused|eai_again|socket|timed?\s*out/i
 
 const isRetryableStatus = (status: unknown): boolean =>
   status === 429 || (typeof status === 'number' && status >= 500)
@@ -83,7 +83,7 @@ export const isRetryableTransportError = (
     : false
 }
 
-const RETRYABLE_MW_ERROR_CODES = new Set(['maxlag', 'ratelimited'])
+const RETRYABLE_MW_ERROR_CODES = new Set(['maxlag'])
 
 export type RetryDelayOption =
   | number
@@ -108,26 +108,31 @@ export const isRetryableRequestError = (error: unknown): boolean =>
   isRetryableTransportError(error) || isRetryableMediaWikiError(error)
 
 export const parseRetryAfterMs = (error: unknown): number | undefined => {
-  const candidates = [
-    (error as any)?.response?.headers,
-    (error as any)?.headers,
-    (error as any)?.cause?.response?.headers,
-    (error as any)?.cause?.headers,
-  ]
-  for (const headers of candidates) {
-    const raw =
-      typeof headers?.get === 'function'
-        ? headers.get('retry-after')
-        : headers?.['retry-after'] ?? headers?.['Retry-After']
-    if (raw == null || raw === '') continue
-    const seconds = Number(raw)
-    if (Number.isFinite(seconds) && seconds >= 0) {
-      return Math.min(60000, Math.round(seconds * 1000))
+  const visited = new Set<unknown>()
+  let current: any = error
+  while (current && typeof current === 'object' && !visited.has(current)) {
+    visited.add(current)
+    const candidates = [
+      current.response?.headers,
+      current.rawResponse?.headers,
+      current.headers,
+    ]
+    for (const headers of candidates) {
+      const raw =
+        typeof headers?.get === 'function'
+          ? headers.get('retry-after')
+          : headers?.['retry-after'] ?? headers?.['Retry-After']
+      if (raw == null || raw === '') continue
+      const seconds = Number(raw)
+      if (Number.isFinite(seconds) && seconds >= 0) {
+        return Math.min(60000, Math.round(seconds * 1000))
+      }
+      const dateMs = Date.parse(String(raw))
+      if (Number.isFinite(dateMs)) {
+        return Math.min(60000, Math.max(0, dateMs - Date.now()))
+      }
     }
-    const dateMs = Date.parse(String(raw))
-    if (Number.isFinite(dateMs)) {
-      return Math.min(60000, Math.max(0, dateMs - Date.now()))
-    }
+    current = current.cause
   }
   return undefined
 }
