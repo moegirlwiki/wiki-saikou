@@ -28,6 +28,7 @@ export { CookieJar, CookieJarItem }
 export class MediaWikiApi extends WikiSaikouCore {
   private autoReloginEnabled = false
   private sessionEpoch = 0
+  private requestSessionEpochs = new WeakMap<object, number>()
   private inflightRelogin?: Promise<void>
   private loginCredentials?: {
     lgname: string
@@ -58,12 +59,17 @@ export class MediaWikiApi extends WikiSaikouCore {
     this.request.on(
       'beforeRequest',
       (ctx) => {
-        const customEnv = (ctx.runtime.customEnv ??= {}) as any
-        if (
-          customEnv[SESSION_EPOCH_ENV] === undefined &&
+        const customEnv = ctx.runtime.customEnv as any
+        const explicitEpoch =
+          customEnv && typeof customEnv === 'object'
+            ? customEnv[SESSION_EPOCH_ENV]
+            : undefined
+        if (typeof explicitEpoch === 'number') {
+          this.requestSessionEpochs.set(ctx.runtime, explicitEpoch)
+        } else if (
           this.toStringArray(this.getParam(ctx.request.query, 'meta')).includes('tokens')
         ) {
-          customEnv[SESSION_EPOCH_ENV] = this.sessionEpoch
+          this.requestSessionEpochs.set(ctx.runtime, this.sessionEpoch)
         }
         return ctx
       },
@@ -72,7 +78,7 @@ export class MediaWikiApi extends WikiSaikouCore {
     this.request.on(
       'afterResponse',
       (ctx) => {
-        const reqEpoch = (ctx.runtime.customEnv as any)?.[SESSION_EPOCH_ENV]
+        const reqEpoch = this.requestSessionEpochs.get(ctx.runtime)
         if (typeof reqEpoch === 'number' && reqEpoch !== this.sessionEpoch) {
           throw Object.assign(new Error('Stale session epoch'), {
             [STALE_SESSION_ERROR]: true,
@@ -287,10 +293,11 @@ export class MediaWikiApi extends WikiSaikouCore {
     }
 
     const { rawRequest, ...requestOptions } = ctx.request as any
-    const nextEnv = {
-      ...ctx.runtime.customEnv,
-      autoReloginAttempt: attempt + 1,
-    }
+    const prevEnv = ctx.runtime.customEnv
+    const nextEnv =
+      prevEnv && typeof prevEnv === 'object' && !Array.isArray(prevEnv)
+        ? { ...prevEnv, autoReloginAttempt: attempt + 1 }
+        : { autoReloginAttempt: attempt + 1 }
 
     const retryResponse = await this.request.request({
       ...requestOptions,

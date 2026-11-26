@@ -4,7 +4,11 @@ import type {
   FexiosFinalContext,
 } from 'fexios'
 import { FexiosQueryBuilder } from 'fexios'
-import { createFexiosSaikou, FexiosSaikou } from './models/FexiosSaikou.js'
+import {
+  createFexiosSaikou,
+  FexiosSaikou,
+  SKIP_TOKEN_STORE,
+} from './models/FexiosSaikou.js'
 import { resolveLegacyCtor } from './utils/resolveLegacyCtor.js'
 import { deepMerge } from './utils/deepMerge.js'
 import {
@@ -129,6 +133,8 @@ export class WikiSaikouCore {
   readonly request: FexiosSaikou
   private inflightTokenRequests = new Map<MwTokenName, Promise<string>>()
   private inflightForcedTokenRequests = new Map<MwTokenName, Promise<string>>()
+  private baseUrlEpoch = 0
+  private requestBaseUrlEpochs = new WeakMap<object, number>()
 
   static INIT_DEFAULT_PARAMS: MwApiParams = {
     action: 'query',
@@ -164,9 +170,33 @@ export class WikiSaikouCore {
       defaultParams
     ))
     this.request = createFexiosSaikou(config.baseURL)
+    this.request.on(
+      'beforeRequest',
+      (ctx) => {
+        this.requestBaseUrlEpochs.set(ctx.runtime, this.baseUrlEpoch)
+        return ctx
+      },
+      true
+    )
+    this.request.on(
+      'afterResponse',
+      (ctx) => {
+        const reqEpoch = this.requestBaseUrlEpochs.get(ctx.runtime)
+        if (typeof reqEpoch === 'number' && reqEpoch !== this.baseUrlEpoch) {
+          ;(ctx.runtime as any)[SKIP_TOKEN_STORE] = true
+        }
+        return ctx
+      },
+      true
+    )
   }
 
   setBaseURL(baseURL: string) {
+    if (baseURL !== this.config.baseURL) {
+      this.baseUrlEpoch++
+      this.clearInflightTokens()
+      this.tokens.clear()
+    }
     this.config.baseURL = baseURL
     this.request.baseConfigs.baseURL = baseURL
     return this
@@ -212,14 +242,21 @@ export class WikiSaikouCore {
 
   private preserveCustomEnvSymbols(
     payload: Partial<FexiosRequestOptions>,
-    sourceCustomEnv?: Record<PropertyKey, unknown>
+    sourceCustomEnv?: unknown
   ): void {
-    if (!sourceCustomEnv) return
+    if (!sourceCustomEnv || typeof sourceCustomEnv !== 'object') return
     const symbols = Object.getOwnPropertySymbols(sourceCustomEnv)
     if (!symbols.length) return
-    const target = (payload.customEnv ??= {}) as Record<PropertyKey, unknown>
+    if (
+      !payload.customEnv ||
+      typeof payload.customEnv !== 'object' ||
+      !Object.isExtensible(payload.customEnv)
+    ) {
+      return
+    }
+    const target = payload.customEnv as Record<PropertyKey, unknown>
     for (const sym of symbols) {
-      target[sym] = sourceCustomEnv[sym]
+      target[sym] = (sourceCustomEnv as Record<PropertyKey, unknown>)[sym]
     }
   }
 
@@ -351,12 +388,12 @@ export class WikiSaikouCore {
   get tokens() {
     return this.request._tokens
   }
-  async fetchTokens(
+  private fetchTokensResponse(
     types: MwTokenName[] = ['csrf'],
     options?: WikiSaikouRequestOptions
   ) {
     this.config.fexiosConfigs.credentials = 'include'
-    await this.get<{
+    return this.get<{
       query: { tokens: Record<MwTokenName, string> }
     }>(
       {
@@ -366,6 +403,12 @@ export class WikiSaikouCore {
       },
       options
     )
+  }
+  async fetchTokens(
+    types: MwTokenName[] = ['csrf'],
+    options?: WikiSaikouRequestOptions
+  ) {
+    await this.fetchTokensResponse(types, options)
     return this.tokens
   }
   async getToken(
@@ -402,8 +445,19 @@ export class WikiSaikouCore {
     const map = noCache
       ? this.inflightForcedTokenRequests
       : this.inflightTokenRequests
-    const pending = this.fetchTokens([type], { retry: 1 })
-      .then(() => this.tokens.get(type)!)
+    const pending = this.fetchTokensResponse([type], { retry: 1 })
+      .then((res) => {
+        const tokens = res?.data?.query?.tokens
+        if (tokens && typeof tokens === 'object') {
+          const matched = Object.entries(tokens).find(
+            ([k]) => k.replace(/token$/i, '').toLowerCase() === type
+          )
+          if (typeof matched?.[1] === 'string') {
+            return matched[1]
+          }
+        }
+        return this.tokens.get(type)!
+      })
       .finally(() => {
         if (map.get(type) === pending) {
           map.delete(type)

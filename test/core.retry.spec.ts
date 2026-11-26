@@ -1049,5 +1049,62 @@ describe('MediaWikiApi retry & cancellation', () => {
     )
     expect(callerCustomEnv).to.deep.equal({ traceId: 'abc' })
     expect('mwTokenName' in callerCustomEnv).to.equal(false)
+
+    // 16. Primitive/frozen customEnv on token requests is preserved without TypeError
+    const frozenEnv = Object.freeze({ tag: 1 })
+    for (const customEnv of ['trace-1', false, frozenEnv] as const) {
+      let called = 0
+      const envFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+        called++
+        return mockServer.mockFetch(input as any, init)
+      }
+      const apiEnv = new MediaWikiApi({
+        baseURL: MOCK_API_ENDPOINT_URL.href,
+        fexiosConfigs: { fetch: envFetch as any },
+      })
+      const res = await apiEnv.get(
+        { action: 'query', meta: 'tokens', type: 'csrf' },
+        { customEnv: customEnv as any }
+      )
+      expect(called).to.equal(1)
+      expect(res.data?.query?.tokens?.csrftoken).to.be.a('string')
+      expect(res.runtime.customEnv).to.deep.equal(customEnv)
+    }
+
+    // 17. setBaseURL isolates inflight forced token requests and blocks stale cache writes
+    let releaseSiteA!: () => void
+    const siteAGate = new Promise<void>((resolve) => {
+      releaseSiteA = resolve
+    })
+    const requestedUrls: string[] = []
+    const multiSiteFetch = async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      requestedUrls.push(url)
+      if (url.startsWith('https://site-a.example/w/api.php')) {
+        await siteAGate
+        return new Response(
+          JSON.stringify({ query: { tokens: { csrftoken: 'token-site-a' } } }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      }
+      return new Response(
+        JSON.stringify({ query: { tokens: { csrftoken: 'token-site-b' } } }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+    const apiMultiSite = new MediaWikiApi({
+      baseURL: 'https://site-a.example/w/api.php',
+      fexiosConfigs: { fetch: multiSiteFetch as any },
+    })
+    const siteATokenP = apiMultiSite.getToken('csrf', true)
+    await new Promise((r) => setTimeout(r, 20))
+    apiMultiSite.setBaseURL('https://site-b.example/w/api.php')
+    const siteBToken = await apiMultiSite.getToken('csrf', true)
+    expect(siteBToken).to.equal('token-site-b')
+    expect(requestedUrls).to.have.lengthOf(2)
+    expect(requestedUrls[1]).to.include('https://site-b.example/w/api.php')
+    releaseSiteA()
+    expect(await siteATokenP).to.equal('token-site-a')
+    expect(apiMultiSite.tokens.get('csrf')).to.equal('token-site-b')
   })
 })

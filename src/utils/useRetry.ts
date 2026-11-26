@@ -117,7 +117,15 @@ export const withTrackedAbortAndResponse = <T>(
   const onAbort = () => targetController.abort(signal.reason)
   signal.addEventListener('abort', onAbort, { once: true })
   trackedOptions.abortController = targetController
-  return fn(trackedOptions)
+  let promise: Promise<T>
+  try {
+    promise = fn(trackedOptions)
+  } catch (err) {
+    signal.removeEventListener('abort', onAbort)
+    attachRawResponseSafely(err, lastResponse)
+    return Promise.reject(err)
+  }
+  return promise
     .catch((err) => {
       attachRawResponseSafely(err, lastResponse)
       throw err
