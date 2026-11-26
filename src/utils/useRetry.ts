@@ -218,8 +218,8 @@ export const createRetryDelay = (
 export const defaultTransportRetryDelay = createRetryDelay()
 
 export const normalizeRetryCount = (retry: number): number => {
-  if (!Number.isFinite(retry) || !Number.isInteger(retry)) {
-    throw new RangeError('retry must be a finite integer')
+  if (!Number.isFinite(retry) || !Number.isInteger(retry) || retry < 1) {
+    throw new RangeError('retry must be a finite integer >= 1')
   }
   return retry
 }

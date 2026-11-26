@@ -448,13 +448,18 @@ export class WikiSaikouCore {
       fexiosOptions,
     } = options || {}
 
-    const maxAttempts = normalizeRetryCount(retry)
-    if (maxAttempts < 1) {
+    if (
+      typeof retry === 'number' &&
+      Number.isFinite(retry) &&
+      Number.isInteger(retry) &&
+      retry < 1
+    ) {
       throw new WikiSaikouError(
         WikiSaikouErrorCode.TOKEN_RETRY_LIMIT_EXCEEDED,
         'The limit of the number of times to automatically re-acquire the token has been exceeded'
       )
     }
+    const maxAttempts = normalizeRetryCount(retry)
 
     let attemptIndex = 0
     let shouldRefreshToken = noCache

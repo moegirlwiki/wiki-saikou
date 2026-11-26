@@ -225,6 +225,7 @@ export class MediaWikiApi extends WikiSaikouCore {
     if (attempt >= maxAttempts) return ctx
 
     await this.reloginIfNeeded()
+    if (!this.canAutoRelogin()) return ctx
 
     const { rawRequest, ...requestOptions } = ctx.request as any
     const nextEnv = {
@@ -317,6 +318,7 @@ export class MediaWikiApi extends WikiSaikouCore {
   async logout(): Promise<void> {
     this.autoReloginEnabled = false
     this.loginCredentials = undefined
+    this.inflightRelogin = undefined
     // optional, tell MediaWiki server to drop the session
     await this.postWithToken('csrf', {
       action: 'logout',

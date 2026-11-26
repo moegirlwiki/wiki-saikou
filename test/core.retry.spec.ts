@@ -477,12 +477,15 @@ describe('MediaWikiApi retry & cancellation', () => {
       mockServer.disableBadtokenTestMode()
     }
 
-    // Non-finite / non-integer retry validation
+    // Non-finite / non-integer / < 1 retry validation
     await expect(
       api.get({ action: 'query', meta: 'siteinfo' }, { retry: Infinity })
     ).rejects.toBeInstanceOf(RangeError)
     await expect(
       api.get({ action: 'query', meta: 'siteinfo' }, { retry: 1.5 })
+    ).rejects.toBeInstanceOf(RangeError)
+    await expect(
+      api.get({ action: 'query', meta: 'siteinfo' }, { retry: 0 })
     ).rejects.toBeInstanceOf(RangeError)
 
     // badtoken passes Error to retryDelay
