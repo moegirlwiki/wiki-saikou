@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       fexios:
-        specifier: ^6.3.0
-        version: 6.3.0
+        specifier: ^6.4.0
+        version: 6.4.0
     devDependencies:
       '@microsoft/api-extractor':
         specifier: ^7.55.2
@@ -926,8 +926,8 @@ packages:
       picomatch:
         optional: true
 
-  fexios@6.3.0:
-    resolution: {integrity: sha512-MY/Pjbb76UeZv2I8ndR98vIJkbRSD2w4pZRuSdxqugAxp7y37spJuVnjQYkfVGT3YmmkETwQEDvdCc1EG2dr7g==}
+  fexios@6.4.0:
+    resolution: {integrity: sha512-6ZnkeTKP8k3rPwpMByyVvI8jho8LssX0JuMqmAX1uPB/SBAAkkUlTGxKH60Bb1v2LpeFqKqgw3HzRYuIbu6Oqg==}
     engines: {node: ^16.15.0 || >=18.0.0}
 
   fix-dts-default-cjs-exports@1.0.1:
@@ -2416,7 +2416,7 @@ snapshots:
     optionalDependencies:
       picomatch: 4.0.3
 
-  fexios@6.3.0: {}
+  fexios@6.4.0: {}
 
   fix-dts-default-cjs-exports@1.0.1:
     dependencies:
