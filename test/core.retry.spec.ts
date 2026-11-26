@@ -79,6 +79,22 @@ describe('MediaWikiApi retry & cancellation', () => {
       api.postWithToken('csrf', { action: 'edit', title: 'P', text: 'x' })
     ).rejects.toMatchObject({ name: 'FexiosError', code: 'NETWORK_ERROR' })
     expect(postAttempts).to.equal(1)
+
+    // Non-badtoken { ok: false } errors (e.g. business errors) are NOT retried unconditionally
+    let okFalseAttempts = 0
+    const okFalseApi = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: { fetch: mockServer.mockFetch },
+    })
+    await okFalseApi.login(MOCK_MW_USERNAME, MOCK_MW_PASSWORD)
+    vi.spyOn(okFalseApi, 'post').mockImplementation(async () => {
+      okFalseAttempts++
+      throw Object.assign(new Error('abusefilter'), { ok: false })
+    })
+    await expect(
+      okFalseApi.postWithToken('csrf', { action: 'edit', title: 'P', text: 'x' })
+    ).rejects.toMatchObject({ message: 'abusefilter', ok: false })
+    expect(okFalseAttempts).to.equal(1)
   })
 
   it('retries transport errors when caller opts in via shouldRetry', async () => {

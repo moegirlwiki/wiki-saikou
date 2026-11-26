@@ -141,21 +141,21 @@ interface WikiSaikouConfig {
 - `get<T = any>(query: MwApiParams, options?: WikiSaikouRequestOptions): Promise<FexiosFinalContext<MwApiResponse<T>>>`
 
   - Performs a GET request. `query` will be merged with `config.defaultParams`.
-  - Supports `retry` (maximum total attempts, default `config.retry ?? 1`), `shouldRetry`, `retryDelay`, `onRetry`, and `signal`. Transport errors are not retried by default unless `shouldRetry` is provided.
+  - Supports `retry` (maximum total attempts including the initial request, default `config.retry ?? 1`), `shouldRetry`, `retryDelay`, `onRetry`, and `signal`. Transport errors are not retried by default unless `shouldRetry` is provided.
 
 - `post<T = any>(body: MwApiParams | URLSearchParams | FormData, options?: WikiSaikouRequestOptions): Promise<FexiosFinalContext<MwApiResponse<T>>>`
   - Performs a POST request. Body and query are normalized to API-friendly formats.
-  - Supports `retry` (maximum total attempts, default `config.retry ?? 1`), `shouldRetry`, `retryDelay`, `onRetry`, and `signal`. Transport errors are not retried by default unless `shouldRetry` is provided.
+  - Supports `retry` (maximum total attempts including the initial request, default `config.retry ?? 1`), `shouldRetry`, `retryDelay`, `onRetry`, and `signal`. Transport errors are not retried by default unless `shouldRetry` is provided.
 - `postWithToken<T = any>(tokenType: MwTokenName, body: MwApiParams | URLSearchParams | FormData, options?: { tokenName?: string; retry?: number; retryDelay?: RetryDelayOption; onRetry?: (error: Error, retryCount: number) => void; shouldRetry?: ShouldRetryOption; signal?: AbortSignal; noCache?: boolean; fexiosOptions?: Partial<FexiosRequestOptions> }): Promise<FexiosFinalContext<MwApiResponse<T>>>`
   - Performs a POST request with a token.
   - `tokenType`: The type of token to use.
   - `body`: The body of the request (`MwApiParams`, `URLSearchParams`, or `FormData`).
   - `options`: The options for the request.
     - `tokenName`: The name of the token to use.
-    - `retry`: Maximum total attempts (initial request + retries, default `config.retry ?? 3`). Automatically retries `badtoken` / `ok === false`; transport or other errors are only retried when `shouldRetry(error, retryCount)` returns `true`, and otherwise propagate untouched.
+    - `retry`: Maximum total attempts including the initial request (default `config.retry ?? 3`, matching `useRetry`'s existing behavior where `3` means 1 initial attempt + up to 2 retries). Automatically retries `badtoken`; transport or other errors are only retried when `shouldRetry(error, retryCount)` returns `true`, and otherwise propagate untouched.
     - `retryDelay`: Delay in milliseconds (or backoff callback, e.g. `createRetryDelay(...)`) between retry attempts.
     - `onRetry`: Callback invoked before each scheduled retry attempt.
-    - `shouldRetry`: Optional predicate `(error, retryCount) => boolean` to opt in to retrying transport/network or custom errors.
+    - `shouldRetry`: Optional predicate `(error, retryCount) => boolean` to opt in to retrying transport/network or custom errors. **Warning:** passing `isRetryableTransportError` at client level or on write requests (`post` / `postWithToken`) will also retry non-idempotent writes on ambiguous transport failures, which may cause duplicate edits if the server already processed the request.
     - `signal`: `AbortSignal` to cancel both in-flight requests and retry backoff sleeps.
     - `noCache`: Whether to bypass the cached token.
   - This method will manage the token cache and retry logic automatically.

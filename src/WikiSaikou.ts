@@ -75,6 +75,9 @@ export interface WikiSaikouConfig {
   /**
    * Optional predicate allowing callers to decide whether a failed request (e.g. network/fetch error)
    * should be retried. By default, transport/network errors are NOT retried by the SDK.
+   *
+   * Note: passing a transport predicate like `isRetryableTransportError` at client level
+   * will also retry non-idempotent POST writes on ambiguous transport failures.
    */
   shouldRetry?: ShouldRetryOption
 }
@@ -497,21 +500,19 @@ export class WikiSaikouCore {
         onRetry: (error, count) => {
           attemptIndex = count + 1
           shouldRefreshToken =
-            noCache ||
-            WikiSaikouError.isBadTokenError(error) ||
-            (error as any)?.ok === false
+            noCache || WikiSaikouError.isBadTokenError(error)
           userOnRetry?.(error, count)
         },
         shouldRetry: (error, count) => {
-          if (WikiSaikouError.isBadTokenError(error) || (error as any)?.ok === false) {
+          if (WikiSaikouError.isBadTokenError(error)) {
             return true
           }
           return customShouldRetry ? customShouldRetry(error, count) : false
         },
       }
     ).catch((err) => {
-      // Map exhausted retry of token-related errors into SDK-level error
-      if (WikiSaikouError.isBadTokenError(err) || (err as any)?.ok === false) {
+      // Map exhausted retry of badtoken errors into SDK-level error
+      if (WikiSaikouError.isBadTokenError(err)) {
         throw new WikiSaikouError(
           WikiSaikouErrorCode.TOKEN_RETRY_LIMIT_EXCEEDED,
           'Retry attempts for acquiring/using token exhausted',

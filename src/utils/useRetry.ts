@@ -204,7 +204,7 @@ export const createRetryDelay = (
     if (retryAfter !== undefined) {
       return retryAfter
     }
-    if (WikiSaikouError.isBadTokenError(error) || (error as any)?.ok === false) {
+    if (WikiSaikouError.isBadTokenError(error)) {
       return 0
     }
     const base = Math.min(maxDelayMs, baseDelayMs * 2 ** retryCount)
