@@ -174,14 +174,16 @@ export class WikiSaikouCore {
     options: Partial<FexiosRequestOptions>,
     onResponse: (res: Response) => void
   ): Partial<FexiosRequestOptions> {
-    const baseFetch = options.fetch ?? globalThis.fetch
-    if (typeof baseFetch !== 'function') {
+    const customFetch = options.fetch
+    if (!customFetch && typeof globalThis.fetch !== 'function') {
       return options
     }
     return {
       ...options,
       fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-        const res = await baseFetch(input, init)
+        const res = customFetch
+          ? await customFetch(input, init)
+          : await globalThis.fetch(input, init)
         onResponse(res)
         return res
       },
@@ -296,7 +298,7 @@ export class WikiSaikouCore {
             })
         )
       },
-      { retry, retryDelay, onRetry, shouldRetry, signal }
+      { retry, retryDelay, onRetry, shouldRetry, signal: signal ?? abortController?.signal }
     )
   }
   async post<T = any>(
@@ -343,7 +345,7 @@ export class WikiSaikouCore {
             })
         )
       },
-      { retry, retryDelay, onRetry, shouldRetry, signal }
+      { retry, retryDelay, onRetry, shouldRetry, signal: signal ?? abortController?.signal }
     )
   }
 

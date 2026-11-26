@@ -173,14 +173,40 @@ export class MediaWikiRestApi {
       merged.responseType = (restOptions as any).responseType
     }
 
+    const effectiveSignal = signal ?? existingController?.signal
     const doRequest = () => {
+      let lastResponse: Response | undefined
+      const customFetch = merged.fetch
+      const trackedOptions =
+        customFetch || typeof globalThis.fetch === 'function'
+          ? {
+              ...merged,
+              fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+                const res = customFetch
+                  ? await customFetch(input, init)
+                  : await globalThis.fetch(input, init)
+                lastResponse = res
+                return res
+              },
+            }
+          : merged
+
+      const attachRawResponse = (err: any) => {
+        if (lastResponse && err && typeof err === 'object' && !err.rawResponse) {
+          err.rawResponse = lastResponse
+        }
+        throw err
+      }
+
       if (!signal) {
-        return this.http.request<T>({
-          ...merged,
-          ...(existingController ? { abortController: existingController } : {}),
-          url,
-          method,
-        })
+        return this.http
+          .request<T>({
+            ...trackedOptions,
+            ...(existingController ? { abortController: existingController } : {}),
+            url,
+            method,
+          })
+          .catch(attachRawResponse)
       }
       if (signal.aborted) {
         existingController?.abort(signal.reason)
@@ -191,11 +217,12 @@ export class MediaWikiRestApi {
       signal.addEventListener('abort', onAbort, { once: true })
       return this.http
         .request<T>({
-          ...merged,
+          ...trackedOptions,
           abortController: targetController,
           url,
           method,
         })
+        .catch(attachRawResponse)
         .finally(() => {
           signal.removeEventListener('abort', onAbort)
         })
@@ -203,8 +230,8 @@ export class MediaWikiRestApi {
 
     const maxAttempts = normalizeRetryCount(retry)
     if (maxAttempts <= 1 || !shouldRetry) {
-      if (signal?.aborted) {
-        throw createAbortError(signal)
+      if (effectiveSignal?.aborted) {
+        throw createAbortError(effectiveSignal)
       }
       return await doRequest()
     }
@@ -212,7 +239,7 @@ export class MediaWikiRestApi {
       retry: maxAttempts,
       retryDelay,
       onRetry,
-      signal,
+      signal: effectiveSignal,
       shouldRetry,
     })
   }

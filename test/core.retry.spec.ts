@@ -719,5 +719,76 @@ describe('MediaWikiApi retry & cancellation', () => {
       statusApi.get({ action: 'query', case: '400' }, { retry: 3 })
     ).rejects.toMatchObject({ name: 'FexiosError', code: 'BODY_TRANSFORM_ERROR' })
     expect(bad400Attempts).to.equal(1)
+
+    // 6. MediaWikiRestApi: plain-text 400 does not retry; HTML 502 retries; abortController stops retry loop
+    let rest400Attempts = 0
+    let rest502Attempts = 0
+    const restStatusClient = new MediaWikiRestApi({
+      baseURL: 'https://wiki-saikou.test/rest.php/',
+      shouldRetry: isRetryableTransportError,
+      retryDelay: 0,
+      fexiosConfigs: {
+        responseType: 'json',
+        fetch: async (input) => {
+          const url = typeof input === 'string' ? input : (input as Request).url
+          if (url.includes('400')) {
+            rest400Attempts++
+            return new Response('Bad Request', { status: 400 })
+          }
+          rest502Attempts++
+          if (rest502Attempts === 1) {
+            return new Response('Bad Gateway', { status: 502 })
+          }
+          return new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          })
+        },
+      },
+    })
+    await expect(
+      restStatusClient.get('/v1/page/400', { retry: 3 })
+    ).rejects.toMatchObject({ name: 'FexiosError', code: 'BODY_TRANSFORM_ERROR' })
+    expect(rest400Attempts).to.equal(1)
+
+    const rest502Res = await restStatusClient.get('/v1/page/502', { retry: 2 })
+    expect(rest502Attempts).to.equal(2)
+    expect(rest502Res.data.ok).to.equal(true)
+
+    // abortController stops retry loop even if shouldRetry returns true
+    const acOnly = new AbortController()
+    let acAttempts = 0
+    const acApi = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: {
+        fetch: async () => {
+          acAttempts++
+          acOnly.abort()
+          throw new TypeError('fetch failed')
+        },
+      },
+    })
+    await expect(
+      acApi.get(
+        { action: 'query', meta: 'siteinfo' },
+        {
+          retry: 5,
+          retryDelay: 0,
+          shouldRetry: () => true,
+          abortController: acOnly,
+        }
+      )
+    ).rejects.toMatchObject({ name: 'AbortError' })
+    expect(acAttempts).to.equal(1)
+
+    // Retry-After: 0 and HTTP-date
+    expect(
+      parseRetryAfterMs({ response: { headers: new Headers({ 'Retry-After': '0' }) } })
+    ).to.equal(0)
+    const futureDate = new Date(Date.now() + 2000).toUTCString()
+    const parsedDateMs = parseRetryAfterMs({
+      response: { headers: new Headers({ 'Retry-After': futureDate }) },
+    })
+    expect(parsedDateMs).to.be.at.least(0).and.at.most(3000)
   })
 })
