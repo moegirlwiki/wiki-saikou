@@ -633,8 +633,9 @@ describe('MediaWikiApi retry & cancellation', () => {
     )
     await new Promise((r) => setTimeout(r, 20))
     editController.abort()
+    await expect(editPromise).rejects.toMatchObject({ name: 'AbortError' })
     releaseEditRelogin()
-    await editPromise
+    await new Promise((r) => setTimeout(r, 20))
     expect(editCalls).to.equal(1)
 
     // 4. Passing both signal and abortController still aborts via signal
@@ -790,5 +791,91 @@ describe('MediaWikiApi retry & cancellation', () => {
       response: { headers: new Headers({ 'Retry-After': futureDate }) },
     })
     expect(parsedDateMs).to.be.at.least(0).and.at.most(3000)
+
+    // 7. Old relogin finishing AFTER logout() + new login() does NOT wipe new session cookies/tokens
+    let releaseOldRelogin!: () => void
+    const oldReloginGate = new Promise<void>((r) => {
+      releaseOldRelogin = r
+    })
+    let seqLoginCount = 0
+    let seqSiteinfoCount = 0
+    const newSessionFetch: typeof fetch = async (input, init) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      const action = await getActionFromFetchArgs(input, init)
+      if (action === 'login') {
+        seqLoginCount++
+        if (seqLoginCount === 2) {
+          await oldReloginGate
+        }
+      }
+      if (url.includes('meta=siteinfo')) {
+        seqSiteinfoCount++
+        if (seqSiteinfoCount === 1) {
+          return new Response(
+            JSON.stringify({
+              errors: [{ code: 'assertuserfailed', text: 'Assertion failed' }],
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          )
+        }
+      }
+      return mockServer.mockFetch(input as any, init)
+    }
+    const apiNewSession = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: { fetch: newSessionFetch },
+    })
+    await apiNewSession.login(MOCK_MW_USERNAME, MOCK_MW_PASSWORD)
+    const oldReq = apiNewSession.get({ action: 'query', meta: 'siteinfo' })
+    await new Promise((r) => setTimeout(r, 20))
+    await apiNewSession.logout()
+    await apiNewSession.login(MOCK_MW_USERNAME, MOCK_MW_PASSWORD)
+    const newCsrf = await apiNewSession.getToken('csrf')
+    const newCookies = apiNewSession.cookieJar.getCookies('wiki-saikou.test')
+    expect(newCookies.length).to.be.greaterThan(0)
+    releaseOldRelogin()
+    await oldReq
+    expect(apiNewSession.cookieJar.getCookies('wiki-saikou.test')).to.deep.equal(
+      newCookies
+    )
+    expect(apiNewSession.tokens.get('csrf')).to.equal(newCsrf)
+
+    // 8. baseConfigs.fetch is preserved (not bypassed to globalThis.fetch)
+    let baseFetchUsed = 0
+    const apiBaseFetch = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+    })
+    apiBaseFetch.request.baseConfigs.fetch = async (input, init) => {
+      baseFetchUsed++
+      return mockServer.mockFetch(input as any, init)
+    }
+    await apiBaseFetch.get({ action: 'query', meta: 'siteinfo' })
+    expect(baseFetchUsed).to.equal(1)
+
+    let restBaseFetchUsed = 0
+    const restBaseFetch = new MediaWikiRestApi({
+      baseURL: 'https://wiki-saikou.test/rest.php/',
+    })
+    restBaseFetch.http.baseConfigs.fetch = async (input, init) => {
+      restBaseFetchUsed++
+      return mockServer.mockFetch(input as any, init)
+    }
+    await restBaseFetch.get('/v1/page/{title}', {
+      pathParams: { title: 'Main_Page' },
+    })
+    expect(restBaseFetchUsed).to.equal(1)
+
+    // 9. Frozen errors thrown in afterResponse are preserved without TypeError
+    const frozenErr = Object.freeze(new Error('frozen afterResponse error'))
+    const apiFrozen = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: { fetch: mockServer.mockFetch },
+    })
+    apiFrozen.request.on('afterResponse', () => {
+      throw frozenErr
+    })
+    await expect(
+      apiFrozen.get({ action: 'query', meta: 'siteinfo' })
+    ).rejects.toBe(frozenErr)
   })
 })

@@ -1,3 +1,4 @@
+import type { FexiosRequestOptions } from 'fexios'
 import { FexiosError, FexiosErrorCodes, FexiosResponseError } from 'fexios'
 import {
   MediaWikiApiError,
@@ -16,6 +17,81 @@ export const createAbortError = (signal?: AbortSignal): Error => {
   )
   err.name = 'AbortError'
   return err
+}
+
+export const attachRawResponseSafely = (
+  err: unknown,
+  rawResponse: Response | undefined
+): void => {
+  if (!rawResponse || !err || typeof err !== 'object' || 'rawResponse' in err) {
+    return
+  }
+  if (!Object.isExtensible(err)) {
+    return
+  }
+  try {
+    Object.defineProperty(err, 'rawResponse', {
+      value: rawResponse,
+      configurable: true,
+      writable: true,
+      enumerable: false,
+    })
+  } catch {
+    // Never mask the original error if defining rawResponse fails
+  }
+}
+
+export const withTrackedAbortAndResponse = <T>(
+  options: Partial<FexiosRequestOptions>,
+  instanceBaseFetch: FexiosRequestOptions['fetch'] | undefined,
+  signal: AbortSignal | undefined,
+  existingController: AbortController | undefined,
+  fn: (opts: Partial<FexiosRequestOptions>) => Promise<T>
+): Promise<T> => {
+  if (signal?.aborted) {
+    existingController?.abort(signal.reason)
+    return Promise.reject(createAbortError(signal))
+  }
+
+  let lastResponse: Response | undefined
+  const customFetch = options.fetch
+  const resolvedFetch = customFetch ?? instanceBaseFetch
+  const trackedOptions: Partial<FexiosRequestOptions> =
+    resolvedFetch || typeof globalThis.fetch === 'function'
+      ? {
+          ...options,
+          fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+            const res = resolvedFetch
+              ? await resolvedFetch(input, init)
+              : await globalThis.fetch(input, init)
+            lastResponse = res
+            return res
+          },
+        }
+      : { ...options }
+
+  if (!signal) {
+    if (existingController) {
+      trackedOptions.abortController = existingController
+    }
+    return fn(trackedOptions).catch((err) => {
+      attachRawResponseSafely(err, lastResponse)
+      throw err
+    })
+  }
+
+  const targetController = existingController ?? new AbortController()
+  const onAbort = () => targetController.abort(signal.reason)
+  signal.addEventListener('abort', onAbort, { once: true })
+  trackedOptions.abortController = targetController
+  return fn(trackedOptions)
+    .catch((err) => {
+      attachRawResponseSafely(err, lastResponse)
+      throw err
+    })
+    .finally(() => {
+      signal.removeEventListener('abort', onAbort)
+    })
 }
 
 export const raceWithSignal = <T>(

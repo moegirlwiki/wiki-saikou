@@ -9,6 +9,7 @@ import { WikiSaikouError, WikiSaikouErrorCode } from './models/errors.js'
 import {
   createAbortError,
   normalizeRetryCount,
+  withTrackedAbortAndResponse,
   type RetryDelayOption,
   type ShouldRetryOption,
   useRetry,
@@ -174,59 +175,19 @@ export class MediaWikiRestApi {
     }
 
     const effectiveSignal = signal ?? existingController?.signal
-    const doRequest = () => {
-      let lastResponse: Response | undefined
-      const customFetch = merged.fetch
-      const trackedOptions =
-        customFetch || typeof globalThis.fetch === 'function'
-          ? {
-              ...merged,
-              fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-                const res = customFetch
-                  ? await customFetch(input, init)
-                  : await globalThis.fetch(input, init)
-                lastResponse = res
-                return res
-              },
-            }
-          : merged
-
-      const attachRawResponse = (err: any) => {
-        if (lastResponse && err && typeof err === 'object' && !err.rawResponse) {
-          err.rawResponse = lastResponse
-        }
-        throw err
-      }
-
-      if (!signal) {
-        return this.http
-          .request<T>({
-            ...trackedOptions,
-            ...(existingController ? { abortController: existingController } : {}),
+    const doRequest = () =>
+      withTrackedAbortAndResponse(
+        merged,
+        this.http.baseConfigs.fetch,
+        signal,
+        existingController,
+        (opts) =>
+          this.http.request<T>({
+            ...opts,
             url,
             method,
           })
-          .catch(attachRawResponse)
-      }
-      if (signal.aborted) {
-        existingController?.abort(signal.reason)
-        return Promise.reject(createAbortError(signal))
-      }
-      const targetController = existingController ?? new AbortController()
-      const onAbort = () => targetController.abort(signal.reason)
-      signal.addEventListener('abort', onAbort, { once: true })
-      return this.http
-        .request<T>({
-          ...trackedOptions,
-          abortController: targetController,
-          url,
-          method,
-        })
-        .catch(attachRawResponse)
-        .finally(() => {
-          signal.removeEventListener('abort', onAbort)
-        })
-    }
+      )
 
     const maxAttempts = normalizeRetryCount(retry)
     if (maxAttempts <= 1 || !shouldRetry) {

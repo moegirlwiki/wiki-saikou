@@ -8,7 +8,10 @@ import {
   WikiSaikouError,
   WikiSaikouErrorCode,
 } from './models/errors.js'
+import { raceWithSignal } from './utils/useRetry.js'
 import { FexiosHookHandler } from 'fexios/types'
+
+const STALE_SESSION_ERROR = Symbol.for('__WIKI_SAIKOU_STALE_SESSION__')
 
 // re-export for library users
 export * from './WikiSaikou.js'
@@ -51,6 +54,19 @@ export class MediaWikiApi extends WikiSaikouCore {
     )
     super(config)
     this.request.plugin(pluginCookieJar)
+    this.request.on(
+      'afterResponse',
+      (ctx) => {
+        const reqEpoch = ctx.runtime.customEnv?.sessionEpoch
+        if (typeof reqEpoch === 'number' && reqEpoch !== this.sessionEpoch) {
+          throw Object.assign(new Error('Stale session epoch'), {
+            [STALE_SESSION_ERROR]: true,
+          })
+        }
+        return ctx
+      },
+      true
+    )
     this.request.on('beforeRequest', (ctx) => this.handleBeforeRequest(ctx))
     this.request.on('afterResponse', (ctx) => this.handleAfterResponse(ctx))
   }
@@ -163,20 +179,30 @@ export class MediaWikiApi extends WikiSaikouCore {
     }
     const epoch = this.sessionEpoch
     const { lgname, lgpassword, autoReloginRetries } = this.loginCredentials
-    this.inflightRelogin = this.login(lgname, lgpassword, void 0, {
-      autoRelogin: true,
-      autoReloginRetries,
-    })
-      .then(() => {
-        if (epoch !== this.sessionEpoch) {
-          this.tokens.clear()
-          this.request.cookieJar?.clear()
+    const pending = this.performLogin(
+      lgname,
+      lgpassword,
+      void 0,
+      {
+        autoRelogin: true,
+        autoReloginRetries,
+      },
+      epoch
+    )
+      .then(() => undefined)
+      .catch((err) => {
+        if ((err as any)?.[STALE_SESSION_ERROR]) {
+          return undefined
         }
+        throw err
       })
       .finally(() => {
-        this.inflightRelogin = undefined
+        if (this.inflightRelogin === pending) {
+          this.inflightRelogin = undefined
+        }
       })
-    return this.inflightRelogin
+    this.inflightRelogin = pending
+    return pending
   }
 
   get cookieJar() {
@@ -236,7 +262,7 @@ export class MediaWikiApi extends WikiSaikouCore {
     if (origSignal?.aborted) return ctx
 
     const epoch = this.sessionEpoch
-    await this.reloginIfNeeded()
+    await raceWithSignal(this.reloginIfNeeded(), origSignal)
     if (
       origSignal?.aborted ||
       epoch !== this.sessionEpoch ||
@@ -281,6 +307,34 @@ export class MediaWikiApi extends WikiSaikouCore {
     lguserid: number
     lgusername: string
   }> {
+    const loginEpoch = ++this.sessionEpoch
+    this.inflightRelogin = undefined
+    return this.performLogin(lgname, lgpassword, params, postOptions, loginEpoch)
+  }
+
+  private async performLogin(
+    lgname: string,
+    lgpassword: string,
+    params: MwApiParams | undefined,
+    postOptions:
+      | {
+          retry?: number
+          noCache?: boolean
+          autoRelogin?: boolean
+          autoReloginRetries?: number
+        }
+      | undefined,
+    loginEpoch: number
+  ): Promise<{
+    result: 'Success' | 'NeedToken' | 'WrongToken' | 'Failed'
+    token?: string
+    reason?: {
+      code: string
+      text: string
+    }
+    lguserid: number
+    lgusername: string
+  }> {
     this.config.fexiosConfigs.credentials = 'include'
 
     const {
@@ -291,7 +345,6 @@ export class MediaWikiApi extends WikiSaikouCore {
     if (tokenOptions.noCache === undefined) {
       tokenOptions.noCache = true
     }
-    const loginEpoch = this.sessionEpoch
     const res = await this.postWithToken(
       'login',
       {
@@ -303,6 +356,11 @@ export class MediaWikiApi extends WikiSaikouCore {
       {
         tokenName: 'lgtoken',
         ...tokenOptions,
+        fexiosOptions: {
+          customEnv: {
+            sessionEpoch: loginEpoch,
+          },
+        },
       }
     )
 
@@ -318,9 +376,9 @@ export class MediaWikiApi extends WikiSaikouCore {
     }
 
     if (loginEpoch !== this.sessionEpoch) {
-      this.tokens.clear()
-      this.request.cookieJar?.clear()
-      return data.login
+      throw Object.assign(new Error('Stale session epoch'), {
+        [STALE_SESSION_ERROR]: true,
+      })
     }
 
     if (autoRelogin === true) {

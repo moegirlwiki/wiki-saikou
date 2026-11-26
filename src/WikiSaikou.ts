@@ -15,6 +15,7 @@ import {
   normalizeRetryCount,
   parseRetryAfterMs,
   raceWithSignal,
+  withTrackedAbortAndResponse,
   type RetryDelayOption,
   type RetryDelayOptions,
   type ShouldRetryOption,
@@ -170,49 +171,6 @@ export class WikiSaikouCore {
     return this
   }
 
-  private withResponseTracking(
-    options: Partial<FexiosRequestOptions>,
-    onResponse: (res: Response) => void
-  ): Partial<FexiosRequestOptions> {
-    const customFetch = options.fetch
-    if (!customFetch && typeof globalThis.fetch !== 'function') {
-      return options
-    }
-    return {
-      ...options,
-      fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-        const res = customFetch
-          ? await customFetch(input, init)
-          : await globalThis.fetch(input, init)
-        onResponse(res)
-        return res
-      },
-    }
-  }
-
-  private withLinkedAbortController<T>(
-    options: Partial<FexiosRequestOptions>,
-    signal: AbortSignal | undefined,
-    existingController: AbortController | undefined,
-    fn: (opts: Partial<FexiosRequestOptions>) => Promise<T>
-  ): Promise<T> {
-    if (!signal) {
-      return fn(
-        existingController ? { ...options, abortController: existingController } : options
-      )
-    }
-    if (signal.aborted) {
-      existingController?.abort(signal.reason)
-      return Promise.reject(createAbortError(signal))
-    }
-    const targetController = existingController ?? new AbortController()
-    const onAbort = () => targetController.abort(signal.reason)
-    signal.addEventListener('abort', onAbort, { once: true })
-    return fn({ ...options, abortController: targetController }).finally(() => {
-      signal.removeEventListener('abort', onAbort)
-    })
-  }
-
   private runWithRetry<T = any>(
     doRequest: () => Promise<FexiosFinalContext<MwApiResponse<T>>>,
     retryOptions: {
@@ -276,28 +234,14 @@ export class WikiSaikouCore {
       fexiosOptions
     )
     return this.runWithRetry(
-      () => {
-        let lastResponse: Response | undefined
-        return this.withLinkedAbortController(
-          this.withResponseTracking(payload, (r) => {
-            lastResponse = r
-          }),
+      () =>
+        withTrackedAbortAndResponse(
+          payload,
+          this.request.baseConfigs.fetch,
           signal,
           abortController,
-          (opts) =>
-            this.request.get<MwApiResponse<T>>('', opts).catch((err) => {
-              if (
-                lastResponse &&
-                err &&
-                typeof err === 'object' &&
-                !err.rawResponse
-              ) {
-                err.rawResponse = lastResponse
-              }
-              throw err
-            })
-        )
-      },
+          (opts) => this.request.get<MwApiResponse<T>>('', opts)
+        ),
       { retry, retryDelay, onRetry, shouldRetry, signal: signal ?? abortController?.signal }
     )
   }
@@ -323,28 +267,14 @@ export class WikiSaikouCore {
       fexiosOptions
     )
     return this.runWithRetry(
-      () => {
-        let lastResponse: Response | undefined
-        return this.withLinkedAbortController(
-          this.withResponseTracking(payload, (r) => {
-            lastResponse = r
-          }),
+      () =>
+        withTrackedAbortAndResponse(
+          payload,
+          this.request.baseConfigs.fetch,
           signal,
           abortController,
-          (opts) =>
-            this.request.post<MwApiResponse<T>>('', data, opts).catch((err) => {
-              if (
-                lastResponse &&
-                err &&
-                typeof err === 'object' &&
-                !err.rawResponse
-              ) {
-                err.rawResponse = lastResponse
-              }
-              throw err
-            })
-        )
-      },
+          (opts) => this.request.post<MwApiResponse<T>>('', data, opts)
+        ),
       { retry, retryDelay, onRetry, shouldRetry, signal: signal ?? abortController?.signal }
     )
   }
