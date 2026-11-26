@@ -84,19 +84,19 @@
     "fexios": "^6.3.0"
   },
   "devDependencies": {
-    "@microsoft/api-extractor": "^7.55.2",
-    "@types/node": "^24.10.7",
+    "@microsoft/api-extractor": "^7.60.1",
+    "@types/node": "^24.19.4",
     "cross-env": "^10.1.0",
-    "dotenv": "^17.2.3",
-    "hono": "^4.11.3",
+    "dotenv": "^17.4.2",
+    "hono": "^4.13.22",
     "npm-run-all2": "^8.0.4",
-    "rimraf": "^6.1.2",
-    "tsx": "^4.21.0",
+    "rimraf": "^6.1.4",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "unbuild": "^3.6.1",
-    "unplugin-dts": "1.0.0-beta.6",
-    "vite": "^7.3.1",
-    "vitest": "^4.0.17",
+    "unplugin-dts": "^1.1.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.2",
     "wiki-saikou": "workspace:^"
   }
 }
