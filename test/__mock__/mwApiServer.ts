@@ -125,7 +125,11 @@ export function createMockServer() {
           name: sessionData.session.username,
         }
       } else {
-        result.query.userinfo = MOCK_MW_USER_INFO
+        result.query.userinfo = {
+          id: 0,
+          name: '127.0.0.1',
+          anon: true,
+        }
       }
     }
     if (meta.includes('tokens')) {
@@ -521,6 +525,25 @@ export function createMockServer() {
             error: {
               code: 'assertnameduserfailed',
               info: 'You are no longer logged in as "TestUser", so the action could not be completed.',
+            },
+          },
+          200
+        )
+        return response
+      }
+    }
+    if (
+      action !== 'login' &&
+      action !== 'testDropLogin' &&
+      data.assert === 'user'
+    ) {
+      const sessionData = getSession(c)
+      if (!sessionData || !sessionData.session.authenticated) {
+        response = await c.json(
+          {
+            error: {
+              code: 'assertuserfailed',
+              info: 'Assertion that the user is logged in failed.',
             },
           },
           200
