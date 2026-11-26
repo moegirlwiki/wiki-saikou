@@ -170,21 +170,43 @@ export class WikiSaikouCore {
     return this
   }
 
+  private withResponseTracking(
+    options: Partial<FexiosRequestOptions>,
+    onResponse: (res: Response) => void
+  ): Partial<FexiosRequestOptions> {
+    const baseFetch = options.fetch ?? globalThis.fetch
+    if (typeof baseFetch !== 'function') {
+      return options
+    }
+    return {
+      ...options,
+      fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+        const res = await baseFetch(input, init)
+        onResponse(res)
+        return res
+      },
+    }
+  }
+
   private withLinkedAbortController<T>(
     options: Partial<FexiosRequestOptions>,
     signal: AbortSignal | undefined,
+    existingController: AbortController | undefined,
     fn: (opts: Partial<FexiosRequestOptions>) => Promise<T>
   ): Promise<T> {
-    if (!signal || options.abortController) {
-      return fn(options)
+    if (!signal) {
+      return fn(
+        existingController ? { ...options, abortController: existingController } : options
+      )
     }
     if (signal.aborted) {
+      existingController?.abort(signal.reason)
       return Promise.reject(createAbortError(signal))
     }
-    const controller = new AbortController()
-    const onAbort = () => controller.abort(signal.reason)
+    const targetController = existingController ?? new AbortController()
+    const onAbort = () => targetController.abort(signal.reason)
     signal.addEventListener('abort', onAbort, { once: true })
-    return fn({ ...options, abortController: controller }).finally(() => {
+    return fn({ ...options, abortController: targetController }).finally(() => {
       signal.removeEventListener('abort', onAbort)
     })
   }
@@ -237,6 +259,7 @@ export class WikiSaikouCore {
       onRetry,
       shouldRetry,
       signal,
+      abortController,
       ...fexiosOptions
     } = options || {}
     const payload = deepMerge<Partial<FexiosRequestOptions>>(
@@ -251,10 +274,28 @@ export class WikiSaikouCore {
       fexiosOptions
     )
     return this.runWithRetry(
-      () =>
-        this.withLinkedAbortController(payload, signal, (opts) =>
-          this.request.get<MwApiResponse<T>>('', opts)
-        ),
+      () => {
+        let lastResponse: Response | undefined
+        return this.withLinkedAbortController(
+          this.withResponseTracking(payload, (r) => {
+            lastResponse = r
+          }),
+          signal,
+          abortController,
+          (opts) =>
+            this.request.get<MwApiResponse<T>>('', opts).catch((err) => {
+              if (
+                lastResponse &&
+                err &&
+                typeof err === 'object' &&
+                !err.rawResponse
+              ) {
+                err.rawResponse = lastResponse
+              }
+              throw err
+            })
+        )
+      },
       { retry, retryDelay, onRetry, shouldRetry, signal }
     )
   }
@@ -268,6 +309,7 @@ export class WikiSaikouCore {
       onRetry,
       shouldRetry,
       signal,
+      abortController,
       ...fexiosOptions
     } = options || {}
     const payload = deepMerge<Partial<FexiosRequestOptions>>(
@@ -279,10 +321,28 @@ export class WikiSaikouCore {
       fexiosOptions
     )
     return this.runWithRetry(
-      () =>
-        this.withLinkedAbortController(payload, signal, (opts) =>
-          this.request.post<MwApiResponse<T>>('', data, opts)
-        ),
+      () => {
+        let lastResponse: Response | undefined
+        return this.withLinkedAbortController(
+          this.withResponseTracking(payload, (r) => {
+            lastResponse = r
+          }),
+          signal,
+          abortController,
+          (opts) =>
+            this.request.post<MwApiResponse<T>>('', data, opts).catch((err) => {
+              if (
+                lastResponse &&
+                err &&
+                typeof err === 'object' &&
+                !err.rawResponse
+              ) {
+                err.rawResponse = lastResponse
+              }
+              throw err
+            })
+        )
+      },
       { retry, retryDelay, onRetry, shouldRetry, signal }
     )
   }
@@ -355,7 +415,7 @@ export class WikiSaikouCore {
   async getToken(
     type: MwTokenName = 'csrf',
     noCache = false,
-    options?: WikiSaikouRequestOptions
+    options?: { signal?: AbortSignal }
   ) {
     const signal = options?.signal
     if (signal?.aborted) {
@@ -383,11 +443,10 @@ export class WikiSaikouCore {
     if (noCache) {
       this.tokens.delete(type)
     }
-    const { signal: _callerSignal, ...fetchOptions } = options || {}
     const map = noCache
       ? this.inflightForcedTokenRequests
       : this.inflightTokenRequests
-    const pending = this.fetchTokens([type], fetchOptions)
+    const pending = this.fetchTokens([type], { retry: 1 })
       .then(() => this.tokens.get(type)!)
       .finally(() => {
         if (map.get(type) === pending) {
@@ -471,18 +530,32 @@ export class WikiSaikouCore {
         const token = await this.getToken(
           tokenType,
           shouldRefreshToken || (attemptIndex > 0 && !this.tokens.get(tokenType)),
-          { retry: 1, signal }
+          { signal }
         )
 
-        const ctx = await this.post<MwApiResponse<T>>(
-          this.attachTokenToBody(body, tokenName, token),
-          deepMerge<WikiSaikouRequestOptions>(fexiosOptions || {}, {
+        const {
+          abortController: fexiosAbortController,
+          ...restFexiosOptions
+        } = fexiosOptions || {}
+        const postOptions = deepMerge<WikiSaikouRequestOptions>(
+          restFexiosOptions,
+          {
             retry: 1,
-            signal,
             customEnv: {
               mwTokenName: tokenType,
             },
-          })
+          }
+        )
+        if (signal) {
+          postOptions.signal = signal
+        }
+        if (fexiosAbortController) {
+          postOptions.abortController = fexiosAbortController
+        }
+
+        const ctx = await this.post<MwApiResponse<T>>(
+          this.attachTokenToBody(body, tokenName, token),
+          postOptions
         )
 
         if (WikiSaikouError.isBadTokenError(ctx.data)) {

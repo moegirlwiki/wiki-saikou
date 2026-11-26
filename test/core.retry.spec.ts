@@ -534,4 +534,190 @@ describe('MediaWikiApi retry & cancellation', () => {
       parseRetryAfterMs({ response: { headers: new Headers({ 'Retry-After': '2' }) } })
     ).to.equal(2000)
   })
+
+  it('handles relogin/logout race, postWithToken cached-token signal, abort during relogin, linked abortController, and 429/400 classification', async () => {
+    const mockServer = createMockServer()
+
+    // 1. Late relogin response after logout() does not restore session or replay old request
+    let releaseRelogin!: () => void
+    const reloginGate = new Promise<void>((r) => {
+      releaseRelogin = r
+    })
+    let loginCount = 0
+    let siteinfoCount = 0
+    const logoutRaceFetch: typeof fetch = async (input, init) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      const action = await getActionFromFetchArgs(input, init)
+      if (action === 'login') {
+        loginCount++
+        if (loginCount === 2) {
+          await reloginGate
+        }
+      }
+      if (url.includes('meta=siteinfo')) {
+        siteinfoCount++
+        if (siteinfoCount === 1) {
+          return new Response(
+            JSON.stringify({
+              errors: [{ code: 'assertuserfailed', text: 'Assertion failed' }],
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          )
+        }
+      }
+      return mockServer.mockFetch(input as any, init)
+    }
+
+    const apiLogoutRace = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: { fetch: logoutRaceFetch },
+    })
+    await apiLogoutRace.login(MOCK_MW_USERNAME, MOCK_MW_PASSWORD)
+    const pendingReq = apiLogoutRace.get({ action: 'query', meta: 'siteinfo' })
+    await new Promise((r) => setTimeout(r, 20))
+    await apiLogoutRace.logout()
+    releaseRelogin()
+    await pendingReq
+    expect(siteinfoCount).to.equal(1)
+    expect(apiLogoutRace.cookieJar.getCookies('wiki-saikou.test')).to.have.length(0)
+
+    // 2. postWithToken with cached token + AbortSignal does not fail deepMerge
+    const apiSig = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: { fetch: mockServer.mockFetch },
+    })
+    await apiSig.login(MOCK_MW_USERNAME, MOCK_MW_PASSWORD)
+    await apiSig.getToken('csrf')
+    const sigRes = await apiSig.postWithToken(
+      'csrf',
+      { action: 'edit', title: 'SigPage', text: 'ok' },
+      { signal: new AbortController().signal }
+    )
+    expect(sigRes.data.edit.result).to.equal('Success')
+
+    // 3. Aborting edit while relogin is in progress prevents replay
+    let releaseEditRelogin!: () => void
+    const editReloginGate = new Promise<void>((r) => {
+      releaseEditRelogin = r
+    })
+    let editLoginCount = 0
+    let editCalls = 0
+    const abortReloginFetch: typeof fetch = async (input, init) => {
+      const action = await getActionFromFetchArgs(input, init)
+      if (action === 'login') {
+        editLoginCount++
+        if (editLoginCount === 2) {
+          await editReloginGate
+        }
+      }
+      if (action === 'edit') {
+        editCalls++
+        return new Response(
+          JSON.stringify({
+            errors: [{ code: 'assertuserfailed', text: 'Assertion failed' }],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        )
+      }
+      return mockServer.mockFetch(input as any, init)
+    }
+    const apiAbortRelogin = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: { fetch: abortReloginFetch },
+    })
+    await apiAbortRelogin.login(MOCK_MW_USERNAME, MOCK_MW_PASSWORD)
+    const editController = new AbortController()
+    const editPromise = apiAbortRelogin.post(
+      { action: 'edit', title: 'AbortRelogin', text: 'x' },
+      { signal: editController.signal }
+    )
+    await new Promise((r) => setTimeout(r, 20))
+    editController.abort()
+    releaseEditRelogin()
+    await editPromise
+    expect(editCalls).to.equal(1)
+
+    // 4. Passing both signal and abortController still aborts via signal
+    const linkedSignalController = new AbortController()
+    const existingAbortController = new AbortController()
+    let linkedAborted = false
+    let markLinkedStarted!: () => void
+    const linkedStarted = new Promise<void>((r) => {
+      markLinkedStarted = r
+    })
+    const apiLinked = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: {
+        fetch: (input, init) => {
+          const reqSignal =
+            input instanceof Request ? input.signal : init?.signal ?? undefined
+          markLinkedStarted()
+          return new Promise((_res, rej) => {
+            reqSignal?.addEventListener('abort', () => {
+              linkedAborted = true
+              rej(new DOMException('Aborted', 'AbortError'))
+            })
+          })
+        },
+      },
+    })
+    const linkedP = apiLinked.get(
+      { action: 'query', meta: 'siteinfo' },
+      {
+        signal: linkedSignalController.signal,
+        abortController: existingAbortController,
+      }
+    )
+    await linkedStarted
+    linkedSignalController.abort()
+    await expect(linkedP).rejects.toMatchObject({ name: 'FexiosError' })
+    expect(linkedAborted).to.equal(true)
+
+    // 5. throwOnApiError=true: 429 with API error body retries; plain-text 400 does not retry
+    let rate429Attempts = 0
+    let bad400Attempts = 0
+    const statusApi = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      throwOnApiError: true,
+      shouldRetry: isRetryableTransportError,
+      retryDelay: 0,
+      fexiosConfigs: {
+        fetch: async (input) => {
+          const url = typeof input === 'string' ? input : (input as Request).url
+          if (url.includes('case=429')) {
+            rate429Attempts++
+            if (rate429Attempts === 1) {
+              return new Response(
+                JSON.stringify({
+                  errors: [{ code: 'ratelimited', text: 'Too many requests' }],
+                }),
+                { status: 429, headers: { 'content-type': 'application/json' } }
+              )
+            }
+            return new Response(JSON.stringify({ ok: true }), {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            })
+          }
+          bad400Attempts++
+          return new Response('Bad Request', {
+            status: 400,
+            headers: { 'content-type': 'text/plain' },
+          })
+        },
+      },
+    })
+
+    const res429 = await statusApi.get(
+      { action: 'query', case: '429' },
+      { retry: 2 }
+    )
+    expect(rate429Attempts).to.equal(2)
+    expect(res429.data.ok).to.equal(true)
+
+    await expect(
+      statusApi.get({ action: 'query', case: '400' }, { retry: 3 })
+    ).rejects.toMatchObject({ name: 'FexiosError', code: 'BODY_TRANSFORM_ERROR' })
+    expect(bad400Attempts).to.equal(1)
+  })
 })

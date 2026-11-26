@@ -224,9 +224,8 @@ MwParamNormalizer.normalizeBody({
 > You should handle these situations manually by checking the response context.
 
 - `WikiSaikouError`
-  - Transport/network failures (e.g., fetch failure, HTTP layer issues)
-  - SDK behavioral errors such as exhausted internal retries or misconfigurations
-  - Note: When MediaWiki API responds with JSON containing error/errors, a MediaWikiApiError should be thrown instead
+  - SDK behavioral errors such as exhausted token retries (`TOKEN_RETRY_LIMIT_EXCEEDED`), login failures (`LOGIN_FAILED`), or invalid REST configurations (`INVALID_REST_PATH` / `INVALID_REST_ENDPOINT`)
+  - Note: Transport/network failures (e.g. `fetch failed`, timeouts, non-2xx HTTP responses) propagate as the underlying `FexiosError` / `FexiosResponseError` / `TypeError` directly unless handled via `shouldRetry`
 - `WikiSaikouErrorCode`
   - Enum of error codes used in `WikiSaikouError`
 
@@ -236,9 +235,9 @@ MwParamNormalizer.normalizeBody({
 > then WikiSaikou will handle MediaWiki API errors automatically by throwing `MediaWikiApiError` for you.
 
 - `MediaWikiApiError`
-  - fetch succeeded but JSON includes `error` or `errors.length > 0`
+  - fetch succeeded (or HTTP non-2xx with MediaWiki error JSON) and JSON includes `error` or `errors.length > 0`
   - Special states (e.g., login NeedToken/WrongToken) are also considered API-side errors
-  - Note: network/retry issues belong to WikiSaikouError, not this class
+  - Note: transport/network failures belong to `FexiosError` / `FexiosResponseError`, and SDK retry/login errors belong to `WikiSaikouError`
 
 ---
 

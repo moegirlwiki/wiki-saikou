@@ -143,6 +143,7 @@ export class MediaWikiRestApi {
       onRetry = this.config.onRetry,
       shouldRetry = this.config.shouldRetry,
       signal,
+      abortController: existingController,
       ...restOptions
     } = options || {}
     const finalPath = this.resolvePath(path, pathParams)
@@ -173,23 +174,25 @@ export class MediaWikiRestApi {
     }
 
     const doRequest = () => {
-      if (!signal || merged.abortController) {
+      if (!signal) {
         return this.http.request<T>({
           ...merged,
+          ...(existingController ? { abortController: existingController } : {}),
           url,
           method,
         })
       }
       if (signal.aborted) {
+        existingController?.abort(signal.reason)
         return Promise.reject(createAbortError(signal))
       }
-      const controller = new AbortController()
-      const onAbort = () => controller.abort(signal.reason)
+      const targetController = existingController ?? new AbortController()
+      const onAbort = () => targetController.abort(signal.reason)
       signal.addEventListener('abort', onAbort, { once: true })
       return this.http
         .request<T>({
           ...merged,
-          abortController: controller,
+          abortController: targetController,
           url,
           method,
         })

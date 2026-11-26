@@ -23,6 +23,7 @@ export { CookieJar, CookieJarItem }
  */
 export class MediaWikiApi extends WikiSaikouCore {
   private autoReloginEnabled = false
+  private sessionEpoch = 0
   private inflightRelogin?: Promise<void>
   private loginCredentials?: {
     lgname: string
@@ -160,12 +161,18 @@ export class MediaWikiApi extends WikiSaikouCore {
     if (this.inflightRelogin) {
       return this.inflightRelogin
     }
+    const epoch = this.sessionEpoch
     const { lgname, lgpassword, autoReloginRetries } = this.loginCredentials
     this.inflightRelogin = this.login(lgname, lgpassword, void 0, {
       autoRelogin: true,
       autoReloginRetries,
     })
-      .then(() => undefined)
+      .then(() => {
+        if (epoch !== this.sessionEpoch) {
+          this.tokens.clear()
+          this.request.cookieJar?.clear()
+        }
+      })
       .finally(() => {
         this.inflightRelogin = undefined
       })
@@ -224,8 +231,19 @@ export class MediaWikiApi extends WikiSaikouCore {
     const maxAttempts = this.getAutoReloginRetries()
     if (attempt >= maxAttempts) return ctx
 
+    const origAbortController = ctx.runtime.abortController
+    const origSignal = origAbortController?.signal
+    if (origSignal?.aborted) return ctx
+
+    const epoch = this.sessionEpoch
     await this.reloginIfNeeded()
-    if (!this.canAutoRelogin()) return ctx
+    if (
+      origSignal?.aborted ||
+      epoch !== this.sessionEpoch ||
+      !this.canAutoRelogin()
+    ) {
+      return ctx
+    }
 
     const { rawRequest, ...requestOptions } = ctx.request as any
     const nextEnv = {
@@ -235,6 +253,7 @@ export class MediaWikiApi extends WikiSaikouCore {
 
     const retryResponse = await this.request.request({
       ...requestOptions,
+      ...(origAbortController ? { abortController: origAbortController } : {}),
       url: ctx.request.url,
       customEnv: nextEnv,
     })
@@ -272,6 +291,7 @@ export class MediaWikiApi extends WikiSaikouCore {
     if (tokenOptions.noCache === undefined) {
       tokenOptions.noCache = true
     }
+    const loginEpoch = this.sessionEpoch
     const res = await this.postWithToken(
       'login',
       {
@@ -297,6 +317,12 @@ export class MediaWikiApi extends WikiSaikouCore {
       )
     }
 
+    if (loginEpoch !== this.sessionEpoch) {
+      this.tokens.clear()
+      this.request.cookieJar?.clear()
+      return data.login
+    }
+
     if (autoRelogin === true) {
       this.autoReloginEnabled = true
       this.loginCredentials = {
@@ -316,6 +342,7 @@ export class MediaWikiApi extends WikiSaikouCore {
   }
 
   async logout(): Promise<void> {
+    this.sessionEpoch++
     this.autoReloginEnabled = false
     this.loginCredentials = undefined
     this.inflightRelogin = undefined

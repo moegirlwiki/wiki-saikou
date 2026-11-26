@@ -79,6 +79,7 @@ const isRetryableStatus = (status: unknown): boolean =>
 const extractResponseStatus = (error: unknown): number | undefined => {
   const candidates = [
     (error as any)?.response?.status,
+    (error as any)?.rawResponse?.status,
     (error as any)?.context?.response?.status,
     (error as any)?.context?.rawResponse?.status,
   ]
@@ -89,10 +90,15 @@ const checkRetryableTransportError = (
   error: unknown,
   visited = new Set<unknown>()
 ): boolean => {
-  if (!error || MediaWikiApiError.is(error) || visited.has(error)) {
+  if (!error || visited.has(error)) {
     return false
   }
   visited.add(error)
+  if (MediaWikiApiError.is(error)) {
+    const mwStatus =
+      extractResponseStatus(error) ?? extractResponseStatus(error.cause)
+    return mwStatus !== undefined ? isRetryableStatus(mwStatus) : false
+  }
   if (WikiSaikouError.is(error)) {
     if (error.code !== WikiSaikouErrorCode.HTTP_ERROR) {
       return false
@@ -115,10 +121,7 @@ const checkRetryableTransportError = (
         ? checkRetryableTransportError(error.cause, visited)
         : false
     }
-    return (
-      error.code === FexiosErrorCodes.TIMEOUT ||
-      error.code === FexiosErrorCodes.BODY_TRANSFORM_ERROR
-    )
+    return error.code === FexiosErrorCodes.TIMEOUT
   }
   if (error instanceof TypeError && NETWORK_TYPE_ERROR_RE.test(error.message)) {
     return true
