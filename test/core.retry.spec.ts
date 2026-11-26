@@ -7,6 +7,7 @@ import {
   WikiSaikouErrorCode,
 } from '@/node.js'
 import {
+  createRetryDelay,
   defaultTransportRetryDelay,
   parseRetryAfterMs,
 } from '../src/utils/useRetry.js'
@@ -504,5 +505,120 @@ describe('MediaWikiApi transport retry', () => {
     } finally {
       mockServer.disableBadtokenTestMode()
     }
+  })
+
+  it('supports onRetry, createRetryDelay, custom retryableErrorCodes/Statuses, explicit retry: 1, AbortSignal, and maxRetryTime', async () => {
+    const mockServer = createMockServer()
+
+    // 1. onRetry + custom retryableErrorCodes & retryableStatuses + explicit retry: 1
+    let rateAttempts = 0
+    const rateFetch: typeof fetch = async (input, init) => {
+      const action = await getActionFromFetchArgs(input, init)
+      if (action === 'edit') {
+        rateAttempts++
+        if (rateAttempts === 1) {
+          return new Response(
+            JSON.stringify({
+              errors: [{ code: 'ratelimited', text: 'Rate limited' }],
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          )
+        }
+        if (rateAttempts === 2) {
+          return new Response('Request Timeout', { status: 408 })
+        }
+      }
+      return mockServer.mockFetch(input as any, init)
+    }
+
+    const onRetryEvents: number[] = []
+    const customApi = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: { fetch: rateFetch },
+      throwOnApiError: true,
+      retry: 3,
+      retryDelay: 0,
+      retryOnTransportError: true,
+      retryableErrorCodes: ['ratelimited'],
+      retryableStatuses: [408],
+      onRetry: (_err, count) => onRetryEvents.push(count),
+    })
+    await customApi.login(MOCK_MW_USERNAME, MOCK_MW_PASSWORD)
+
+    const res = await customApi.postWithToken('csrf', {
+      action: 'edit',
+      title: 'CustomRetry',
+      text: 'ok',
+    })
+    expect(res.data.edit.result).to.equal('Success')
+    expect(rateAttempts).to.equal(3)
+    expect(onRetryEvents).to.deep.equal([0, 1])
+
+    // 2. Explicit config.retry: 1 disables postWithToken retries
+    const noRetryApi = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: { fetch: mockServer.mockFetch },
+      retry: 1,
+    })
+    mockServer.enableBadtokenTestMode()
+    try {
+      await noRetryApi.login(MOCK_MW_USERNAME, MOCK_MW_PASSWORD)
+      await expect(
+        noRetryApi.postWithToken('csrf', { action: 'testBadtoken' })
+      ).rejects.toMatchObject({ code: WikiSaikouErrorCode.TOKEN_RETRY_LIMIT_EXCEEDED })
+    } finally {
+      mockServer.disableBadtokenTestMode()
+    }
+
+    // 3. createRetryDelay with custom bounds & jitter
+    const delayFn = createRetryDelay({
+      baseDelayMs: 50,
+      maxDelayMs: 120,
+      maxRetryAfterMs: 3000,
+      jitter: 0.2,
+    })
+    const err = new TypeError('fetch failed')
+    const d0 = delayFn(err, 0)
+    const d2 = delayFn(err, 2)
+    expect(d0).to.be.at.least(50).and.at.most(60)
+    expect(d2).to.be.at.least(120).and.at.most(144)
+
+    // 4. AbortSignal cancels retry sleep immediately
+    const controller = new AbortController()
+    let abortAttempts = 0
+    const abortFetch: typeof fetch = async () => {
+      abortAttempts++
+      controller.abort()
+      throw new TypeError('fetch failed')
+    }
+    const abortApi = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: { fetch: abortFetch },
+    })
+    await expect(
+      abortApi.get(
+        { action: 'query', meta: 'siteinfo' },
+        { retry: 5, retryDelay: 5000, signal: controller.signal }
+      )
+    ).rejects.toMatchObject({ name: 'AbortError' })
+    expect(abortAttempts).to.equal(1)
+
+    // 5. maxRetryTime caps retry budget
+    let budgetAttempts = 0
+    const budgetFetch: typeof fetch = async () => {
+      budgetAttempts++
+      throw new TypeError('fetch failed')
+    }
+    const budgetApi = new MediaWikiApi({
+      baseURL: MOCK_API_ENDPOINT_URL.href,
+      fexiosConfigs: { fetch: budgetFetch },
+    })
+    await expect(
+      budgetApi.get(
+        { action: 'query', meta: 'siteinfo' },
+        { retry: 10, retryDelay: 200, maxRetryTime: 50 }
+      )
+    ).rejects.toMatchObject({ name: 'FexiosError' })
+    expect(budgetAttempts).to.equal(1)
   })
 })

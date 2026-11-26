@@ -47,6 +47,22 @@ export interface MediaWikiRestApiConfig {
    * @default false
    */
   retryOnTransportError?: boolean
+  /**
+   * Callback invoked before each retry attempt.
+   */
+  onRetry?: (error: Error, retryCount: number) => void
+  /**
+   * Custom predicate controlling whether a failed request should be retried.
+   */
+  shouldRetry?: (error: Error, retryCount: number) => boolean
+  /**
+   * Additional HTTP status codes to treat as retryable (e.g. `[408]`).
+   */
+  retryableStatuses?: number[]
+  /**
+   * Maximum total duration in milliseconds spent across retry attempts and backoff delays.
+   */
+  maxRetryTime?: number
 }
 
 export type MediaWikiRestApiInitConfig = MediaWikiRestApiConfig
@@ -57,6 +73,11 @@ export type MediaWikiRestRequestOptions = Partial<
     retry?: number
     retryDelay?: RetryDelayOption
     retryOnTransportError?: boolean
+    onRetry?: (error: Error, retryCount: number) => void
+    shouldRetry?: (error: Error, retryCount: number) => boolean
+    retryableStatuses?: number[]
+    maxRetryTime?: number
+    signal?: AbortSignal
   }
 >
 
@@ -67,7 +88,16 @@ export type MediaWikiRestRequestOptions = Partial<
  * because REST and Action API have almost no reusable request semantics.
  */
 export class MediaWikiRestApi {
-  readonly config: Required<MediaWikiRestApiConfig>
+  readonly config: Required<
+    Pick<
+      MediaWikiRestApiConfig,
+      'baseURL' | 'fexiosConfigs' | 'retry' | 'retryDelay' | 'retryOnTransportError'
+    >
+  > &
+    Omit<
+      MediaWikiRestApiConfig,
+      'baseURL' | 'fexiosConfigs' | 'retry' | 'retryDelay' | 'retryOnTransportError'
+    >
 
   /** Underlying HTTP client (Fexios). */
   readonly http: Fexios
@@ -88,6 +118,10 @@ export class MediaWikiRestApi {
       retry: config.retry ?? 1,
       retryDelay: config.retryDelay ?? defaultTransportRetryDelay,
       retryOnTransportError: config.retryOnTransportError ?? false,
+      onRetry: config.onRetry,
+      shouldRetry: config.shouldRetry,
+      retryableStatuses: config.retryableStatuses,
+      maxRetryTime: config.maxRetryTime,
     }
 
     // Prefer creating a dedicated plain Fexios instance for REST (no MW-specific hooks).
@@ -130,6 +164,10 @@ export class MediaWikiRestApi {
       retry = this.config.retry,
       retryDelay = this.config.retryDelay,
       retryOnTransportError = this.config.retryOnTransportError,
+      onRetry = this.config.onRetry,
+      shouldRetry: customShouldRetry = this.config.shouldRetry,
+      retryableStatuses = this.config.retryableStatuses,
+      maxRetryTime = this.config.maxRetryTime,
       ...restOptions
     } = options || {}
     const finalPath = this.resolvePath(path, pathParams)
@@ -175,10 +213,19 @@ export class MediaWikiRestApi {
     if (!allowTransportRetry || retry <= 1) {
       return await doRequest()
     }
+    const extraStatuses = retryableStatuses?.length
+      ? new Set(retryableStatuses)
+      : undefined
     return await useRetry(doRequest, {
       retry,
       retryDelay,
-      shouldRetry: (error) => isRetryableTransportError(error),
+      onRetry,
+      signal: (restOptions as { signal?: AbortSignal }).signal ?? undefined,
+      maxRetryTime,
+      shouldRetry: (error, retryCount) =>
+        customShouldRetry
+          ? customShouldRetry(error, retryCount)
+          : isRetryableTransportError(error, undefined, extraStatuses),
     })
   }
 

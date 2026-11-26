@@ -152,9 +152,10 @@ interface WikiSaikouConfig {
   - `body`: The body of the request.
   - `options`: The options for the request.
     - `tokenName`: The name of the token to use.
-    - `retry`: The number of times to retry the request (handles token refresh, `maxlag`/`ratelimited`, and token-fetch transport errors; pass `retryOnTransportError: true` to also retry non-idempotent POST writes on ambiguous transport errors).
-    - `retryDelay`: Delay in milliseconds (or backoff callback) between retry attempts.
+    - `retry`: The number of times to retry the request (defaults to `config.retry ?? 3`; handles token refresh, `maxlag`, and token-fetch transport errors; pass `retryOnTransportError: true` to also retry non-idempotent POST writes on ambiguous transport errors).
+    - `retryDelay`: Delay in milliseconds (or backoff callback, e.g. `createRetryDelay(...)`) between retry attempts.
     - `retryOnTransportError`: Allow retrying non-idempotent POST writes on ambiguous transport/gateway failures (`default: false`).
+    - `onRetry` / `shouldRetry` / `retryableErrorCodes` / `retryableStatuses` / `maxRetryTime` / `signal`: Optional hooks and controls for logging, custom retry predicates, aborting backoff sleeps, and capping total retry duration.
     - `noCache`: Whether to bypass the cached token.
   - This method will manage the token cache and retry logic automatically.
 
