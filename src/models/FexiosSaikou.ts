@@ -8,6 +8,7 @@ export interface FexiosSaikou extends Fexios {
 }
 
 const FEXIOS_SAIKOU_MARKER = Symbol.for('__FEXIOS_SAIKOU__')
+export const SKIP_TOKEN_STORE = Symbol.for('__WIKI_SAIKOU_SKIP_TOKEN_STORE__')
 
 /**
  * FexiosSaikou
@@ -126,6 +127,9 @@ export function createFexiosSaikou(
   // Token handler
   instance._tokens = new Map<MwTokenName, string>()
   instance.on('afterResponse', (ctx) => {
+    if ((ctx.runtime as any)?.[SKIP_TOKEN_STORE]) {
+      return ctx
+    }
     const { data } = ctx
     // Remove bad token
     const tokenName = ctx.runtime.customEnv?.mwTokenName as MwTokenName

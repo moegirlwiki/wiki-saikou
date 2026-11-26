@@ -6,6 +6,15 @@ import type {
 } from 'fexios'
 import { deepMerge, Fexios } from 'fexios'
 import { WikiSaikouError, WikiSaikouErrorCode } from './models/errors.js'
+import {
+  createAbortError,
+  linkAbortSignals,
+  normalizeRetryCount,
+  withTrackedAbortAndResponse,
+  type RetryDelayOption,
+  type ShouldRetryOption,
+  useRetry,
+} from './utils/useRetry.js'
 
 export interface MediaWikiRestApiConfig {
   /**
@@ -27,12 +36,37 @@ export interface MediaWikiRestApiConfig {
    * - If you explicitly set `responseType` here (even `undefined`), it will be honored.
    */
   fexiosConfigs?: Partial<FexiosConfigs>
+  /**
+   * Default maximum total attempts (initial request + retries).
+   * @default 1
+   */
+  retry?: number
+  /**
+   * Default delay in milliseconds (or backoff callback) between retry attempts.
+   */
+  retryDelay?: RetryDelayOption
+  /**
+   * Callback invoked before each scheduled retry attempt.
+   */
+  onRetry?: (error: Error, retryCount: number) => void
+  /**
+   * Optional predicate allowing callers to decide whether a failed request should be retried.
+   * By default, transport/network errors are NOT retried by the SDK.
+   */
+  shouldRetry?: ShouldRetryOption
 }
 
 export type MediaWikiRestApiInitConfig = MediaWikiRestApiConfig
 
 export type MediaWikiRestRequestOptions = Partial<
-  FexiosRequestOptions & { pathParams?: Record<string, string> }
+  FexiosRequestOptions & {
+    pathParams?: Record<string, string>
+    retry?: number
+    retryDelay?: RetryDelayOption
+    onRetry?: (error: Error, retryCount: number) => void
+    shouldRetry?: ShouldRetryOption
+    signal?: AbortSignal
+  }
 >
 
 /**
@@ -42,7 +76,10 @@ export type MediaWikiRestRequestOptions = Partial<
  * because REST and Action API have almost no reusable request semantics.
  */
 export class MediaWikiRestApi {
-  readonly config: Required<MediaWikiRestApiConfig>
+  readonly config: Required<
+    Pick<MediaWikiRestApiConfig, 'baseURL' | 'fexiosConfigs'>
+  > &
+    Omit<MediaWikiRestApiConfig, 'baseURL' | 'fexiosConfigs'>
 
   /** Underlying HTTP client (Fexios). */
   readonly http: Fexios
@@ -60,6 +97,10 @@ export class MediaWikiRestApi {
     this.config = {
       baseURL: normalizedRestEndpoint,
       fexiosConfigs,
+      retry: config.retry,
+      retryDelay: config.retryDelay,
+      onRetry: config.onRetry,
+      shouldRetry: config.shouldRetry,
     }
 
     // Prefer creating a dedicated plain Fexios instance for REST (no MW-specific hooks).
@@ -97,7 +138,16 @@ export class MediaWikiRestApi {
     path: string,
     options?: MediaWikiRestRequestOptions
   ): Promise<FexiosFinalContext<T>> {
-    const { pathParams, ...restOptions } = options || {}
+    const {
+      pathParams,
+      retry = this.config.retry ?? 1,
+      retryDelay = this.config.retryDelay ?? 0,
+      onRetry = this.config.onRetry,
+      shouldRetry = this.config.shouldRetry,
+      signal,
+      abortController: existingController,
+      ...restOptions
+    } = options || {}
     const finalPath = this.resolvePath(path, pathParams)
     const url = this.buildRestUrl(finalPath)
 
@@ -125,11 +175,42 @@ export class MediaWikiRestApi {
       merged.responseType = (restOptions as any).responseType
     }
 
-    return await this.http.request<T>({
-      ...merged,
-      url,
-      method,
-    })
+    const { signal: effectiveSignal, cleanup } = linkAbortSignals(
+      signal,
+      existingController?.signal
+    )
+    try {
+      const doRequest = () =>
+        withTrackedAbortAndResponse(
+          merged,
+          this.http.baseConfigs.fetch,
+          signal,
+          existingController,
+          (opts) =>
+            this.http.request<T>({
+              ...opts,
+              url,
+              method,
+            })
+        )
+
+      const maxAttempts = normalizeRetryCount(retry)
+      if (maxAttempts <= 1 || !shouldRetry) {
+        if (effectiveSignal?.aborted) {
+          throw createAbortError(effectiveSignal)
+        }
+        return await doRequest()
+      }
+      return await useRetry(doRequest, {
+        retry: maxAttempts,
+        retryDelay,
+        onRetry,
+        signal: effectiveSignal,
+        shouldRetry,
+      })
+    } finally {
+      cleanup()
+    }
   }
 
   async get<T = any>(path: string, options?: MediaWikiRestRequestOptions) {

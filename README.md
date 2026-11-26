@@ -138,20 +138,26 @@ interface WikiSaikouConfig {
 
 ### Core requests
 
-- `get<T = any>(query: MwApiParams, options?: Partial<FexiosRequestOptions>): Promise<FexiosFinalContext<MwApiResponse<T>>>`
+- `get<T = any>(query: MwApiParams, options?: WikiSaikouRequestOptions): Promise<FexiosFinalContext<MwApiResponse<T>>>`
 
   - Performs a GET request. `query` will be merged with `config.defaultParams`.
+  - Supports `retry` (maximum total attempts including the initial request, default `config.retry ?? 1`), `shouldRetry`, `retryDelay`, `onRetry`, and `signal`. Transport errors are not retried by default unless `shouldRetry` is provided.
 
-- `post<T = any>(body: MwApiParams | URLSearchParams | FormData, options?: Partial<FexiosRequestOptions>): Promise<FexiosFinalContext<MwApiResponse<T>>>`
+- `post<T = any>(body: MwApiParams | URLSearchParams | FormData, options?: WikiSaikouRequestOptions): Promise<FexiosFinalContext<MwApiResponse<T>>>`
   - Performs a POST request. Body and query are normalized to API-friendly formats.
-- `postWithToken<T = any>(tokenType: MwTokenName, body: MwApiParams, options?: { tokenName?: string; retry?: number; noCache?: boolean }): Promise<FexiosFinalContext<MwApiResponse<T>>>`
+  - Supports `retry` (maximum total attempts including the initial request, default `config.retry ?? 1`), `shouldRetry`, `retryDelay`, `onRetry`, and `signal`. Transport errors are not retried by default unless `shouldRetry` is provided.
+- `postWithToken<T = any>(tokenType: MwTokenName, body: MwApiParams | URLSearchParams | FormData, options?: { tokenName?: string; retry?: number; retryDelay?: RetryDelayOption; onRetry?: (error: Error, retryCount: number) => void; shouldRetry?: ShouldRetryOption; signal?: AbortSignal; noCache?: boolean; fexiosOptions?: Partial<FexiosRequestOptions> }): Promise<FexiosFinalContext<MwApiResponse<T>>>`
   - Performs a POST request with a token.
   - `tokenType`: The type of token to use.
-  - `body`: The body of the request.
+  - `body`: The body of the request (`MwApiParams`, `URLSearchParams`, or `FormData`).
   - `options`: The options for the request.
     - `tokenName`: The name of the token to use.
-    - `retry`: The number of times to retry the request.
-    - `noCache`: Whether to cache the token.
+    - `retry`: Maximum total attempts including the initial request (default `config.retry ?? 3`, matching `useRetry`'s existing behavior where `3` means 1 initial attempt + up to 2 retries). Automatically retries `badtoken`; transport or other errors are only retried when `shouldRetry(error, retryCount)` returns `true`, and otherwise propagate untouched.
+    - `retryDelay`: Delay in milliseconds (or backoff callback, e.g. `createRetryDelay(...)`) between retry attempts.
+    - `onRetry`: Callback invoked before each scheduled retry attempt.
+    - `shouldRetry`: Optional predicate `(error, retryCount) => boolean` to opt in to retrying transport/network or custom errors. **Warning:** passing `isRetryableTransportError` at client level or on write requests (`post` / `postWithToken`) will also retry non-idempotent writes on ambiguous transport failures, which may cause duplicate edits if the server already processed the request.
+    - `signal`: `AbortSignal` to cancel both in-flight requests and retry backoff sleeps.
+    - `noCache`: Whether to bypass the cached token.
   - This method will manage the token cache and retry logic automatically.
 
 ### Authentication
@@ -218,9 +224,8 @@ MwParamNormalizer.normalizeBody({
 > You should handle these situations manually by checking the response context.
 
 - `WikiSaikouError`
-  - Transport/network failures (e.g., fetch failure, HTTP layer issues)
-  - SDK behavioral errors such as exhausted internal retries or misconfigurations
-  - Note: When MediaWiki API responds with JSON containing error/errors, a MediaWikiApiError should be thrown instead
+  - SDK behavioral errors such as exhausted token retries (`TOKEN_RETRY_LIMIT_EXCEEDED`), login failures (`LOGIN_FAILED`), or invalid REST configurations (`INVALID_REST_PATH` / `INVALID_REST_ENDPOINT`)
+  - Note: Transport/network failures (e.g. `fetch failed`, timeouts, non-2xx HTTP responses) propagate as the underlying `FexiosError` / `FexiosResponseError` / `TypeError` directly unless handled via `shouldRetry`
 - `WikiSaikouErrorCode`
   - Enum of error codes used in `WikiSaikouError`
 
@@ -230,9 +235,9 @@ MwParamNormalizer.normalizeBody({
 > then WikiSaikou will handle MediaWiki API errors automatically by throwing `MediaWikiApiError` for you.
 
 - `MediaWikiApiError`
-  - fetch succeeded but JSON includes `error` or `errors.length > 0`
+  - fetch succeeded (or HTTP non-2xx with MediaWiki error JSON) and JSON includes `error` or `errors.length > 0`
   - Special states (e.g., login NeedToken/WrongToken) are also considered API-side errors
-  - Note: network/retry issues belong to WikiSaikouError, not this class
+  - Note: transport/network failures belong to `FexiosError` / `FexiosResponseError`, and SDK retry/login errors belong to `WikiSaikouError`
 
 ---
 

@@ -12,7 +12,7 @@ export const resolveLegacyCtor = (
   defaultOptions?: Partial<FexiosConfigs>,
   defaultParams?: MwApiParams
 ) => {
-  let config: Required<WikiSaikouConfig> = { ...WikiSaikouCore.DEFAULT_CONFIGS }
+  let config: WikiSaikouConfig = { ...WikiSaikouCore.DEFAULT_CONFIGS }
   if (typeof configOrBaseURL === 'string') {
     config = deepMerge(config, {
       baseURL: configOrBaseURL,
