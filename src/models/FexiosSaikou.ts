@@ -1,10 +1,56 @@
-import { Fexios, FexiosQueryBuilder } from 'fexios'
+import { Fexios, type FexiosConfigs, FexiosQueryBuilder } from 'fexios'
 import { MwParamNormalizer } from './MwParamNormalizer.js'
 import { WikiSaikouError } from './errors.js'
 import type { MwTokenName } from '../types.js'
 
 export interface FexiosSaikou extends Fexios {
   _tokens: Map<string, string>
+}
+
+export type FexiosSaikouInitConfig = Omit<Partial<FexiosConfigs>, 'baseURL'> & {
+  baseURL?: string | URL
+}
+
+export const isUrlLike = (value: unknown): value is URL =>
+  value instanceof URL ||
+  (typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { href?: unknown }).href === 'string' &&
+    Object.prototype.toString.call(value) === '[object URL]')
+
+export const normalizeHeadersInit = (
+  headers?: FexiosConfigs['headers']
+): Record<string, string> | undefined => {
+  if (!headers) return undefined
+  if (
+    (typeof Headers !== 'undefined' && headers instanceof Headers) ||
+    (typeof headers === 'object' &&
+      typeof (headers as Headers).forEach === 'function' &&
+      typeof (headers as Headers).get === 'function')
+  ) {
+    const record: Record<string, string> = {}
+    ;(headers as Headers).forEach((value, key) => {
+      record[key] = value
+    })
+    return record
+  }
+  if (Array.isArray(headers)) {
+    const record: Record<string, string> = {}
+    const keyByLower = new Map<string, string>()
+    for (const [rawKey, rawValue] of headers) {
+      const key = String(rawKey)
+      const lower = key.toLowerCase()
+      const existingKey = keyByLower.get(lower)
+      if (existingKey !== undefined) {
+        record[existingKey] = `${record[existingKey]}, ${String(rawValue)}`
+      } else {
+        keyByLower.set(lower, key)
+        record[key] = String(rawValue)
+      }
+    }
+    return record
+  }
+  return headers as Record<string, string>
 }
 
 const FEXIOS_SAIKOU_MARKER = Symbol.for('__FEXIOS_SAIKOU__')
@@ -21,18 +67,36 @@ const BODY_PREFERRED_QUERY_KEYS = ['format', 'formatversion', 'action'] as const
  * - MediaWiki-specific request/response params normalization
  * - built-in token management
  * - CORS origin handling
+ *
+ * @param {string|URL|Fexios|FexiosSaikouInitConfig} payload create a new FexiosSaikou instance with the given baseURL or Fexios configs, or make the given Fexios instance a FexiosSaikou instance
  */
 export function createFexiosSaikou(
-  payload: string | URL | Fexios
+  payload: string | URL | Fexios | FexiosSaikouInitConfig
 ): FexiosSaikou {
   const instance = (
     payload instanceof Fexios
       ? payload
-      : new Fexios({
-          baseURL:
-            payload instanceof URL ? payload.toString() : String(payload),
-          responseType: 'json',
-        })
+      : typeof payload === 'string' || isUrlLike(payload)
+        ? new Fexios({
+            baseURL: isUrlLike(payload) ? payload.toString() : String(payload),
+            responseType: 'json',
+          })
+        : (() => {
+            const { baseURL, headers, ...rest } = payload
+            const normalizedHeaders = normalizeHeadersInit(headers)
+            return new Fexios({
+              responseType: 'json',
+              ...rest,
+              ...(baseURL !== undefined
+                ? {
+                    baseURL: isUrlLike(baseURL) ? baseURL.toString() : baseURL,
+                  }
+                : {}),
+              ...(normalizedHeaders !== undefined
+                ? { headers: normalizedHeaders }
+                : {}),
+            })
+          })()
   ) as FexiosSaikou
 
   if ((instance as unknown as TaggedObject)[FEXIOS_SAIKOU_MARKER]) {
