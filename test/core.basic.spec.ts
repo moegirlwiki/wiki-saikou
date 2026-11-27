@@ -192,4 +192,32 @@ describe('MediaWikiApi Core (basic)', () => {
     await fexiosDirect.post('/index.php', { title: 'Direct' })
     expect(directUa).to.equal('DirectHeaders/1.0')
   })
+
+  it('keeps api.request and api.get/post on one config source', async () => {
+    const seen: { credentials: string; ua: string | null }[] = []
+    const api = new MediaWikiApi({
+      baseURL: 'https://example.org/w/api.php',
+      fexiosConfigs: {
+        headers: { 'x-ua': 'A' },
+        fetch: (async (req: Request) => {
+          seen.push({ credentials: req.credentials, ua: req.headers.get('x-ua') })
+          return new Response('{}', {
+            headers: { 'Content-Type': 'application/json' },
+          })
+        }) as any,
+      },
+    })
+
+    // Runtime mutation of config.fexiosConfigs reaches direct requests
+    api.config.fexiosConfigs.credentials = 'include'
+    await api.request.post('/index.php', { action: 'view' })
+    // ...and removals stop being sent through api.get
+    delete (api.config.fexiosConfigs.headers as Record<string, string>)['x-ua']
+    await api.get({ action: 'query' })
+
+    expect(seen).to.deep.equal([
+      { credentials: 'include', ua: 'A' },
+      { credentials: 'include', ua: null },
+    ])
+  })
 })

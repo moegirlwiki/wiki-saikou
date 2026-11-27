@@ -312,7 +312,6 @@ export class MediaWikiApi extends WikiSaikouCore {
     }
 
     this.config.fexiosConfigs.credentials = 'include'
-    this.request.baseConfigs.credentials = 'include'
 
     const {
       autoRelogin = true,

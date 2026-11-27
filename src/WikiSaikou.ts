@@ -134,6 +134,9 @@ export class WikiSaikouCore {
         baseURL: config.baseURL,
       })
     )
+    // Single source of truth: config.fexiosConfigs IS the instance baseConfigs,
+    // so runtime mutations apply to every request. Do not copy it per request.
+    config.fexiosConfigs = this.request.baseConfigs
     this.tokenManager = new TokenManager(this.request)
   }
 
@@ -165,7 +168,6 @@ export class WikiSaikouCore {
 
     const payload = deepMerge<Partial<FexiosRequestOptions>>(
       {},
-      this.config.fexiosConfigs as Partial<FexiosRequestOptions>,
       { query },
       fexiosOptions
     )
@@ -245,7 +247,6 @@ export class WikiSaikouCore {
     options?: WikiSaikouRequestOptions
   ) {
     this.config.fexiosConfigs.credentials = 'include'
-    this.request.baseConfigs.credentials = 'include'
     return this.get<{ query: { tokens: Record<MwTokenName, string> } }>(
       { action: 'query', meta: 'tokens', type: types },
       options
