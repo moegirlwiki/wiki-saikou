@@ -81,7 +81,7 @@
   },
   "homepage": "https://github.com/moegirlwiki/wiki-saikou#readme",
   "dependencies": {
-    "fexios": "^6.3.0"
+    "fexios": "^6.4.1"
   },
   "devDependencies": {
     "@microsoft/api-extractor": "^7.60.1",

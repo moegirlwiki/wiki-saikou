@@ -129,7 +129,14 @@ export class WikiSaikouCore {
       defaultOptions,
       defaultParams
     ))
-    this.request = createFexiosSaikou(config.baseURL)
+    this.request = createFexiosSaikou(
+      deepMerge<Partial<FexiosConfigs>>({}, config.fexiosConfigs, {
+        baseURL: config.baseURL,
+      })
+    )
+    // Single source of truth: config.fexiosConfigs IS the instance baseConfigs,
+    // so runtime mutations apply to every request. Do not copy it per request.
+    config.fexiosConfigs = this.request.baseConfigs
     this.tokenManager = new TokenManager(this.request)
   }
 
@@ -161,7 +168,6 @@ export class WikiSaikouCore {
 
     const payload = deepMerge<Partial<FexiosRequestOptions>>(
       {},
-      this.config.fexiosConfigs as Partial<FexiosRequestOptions>,
       { query },
       fexiosOptions
     )

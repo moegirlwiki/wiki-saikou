@@ -89,6 +89,9 @@ export class MediaWikiRestApi {
     } else {
       this.http.baseConfigs.responseType = fexiosConfigs.responseType
     }
+    // Single source of truth: config.fexiosConfigs IS the instance baseConfigs,
+    // so runtime mutations apply to every request. Do not copy it per request.
+    this.config.fexiosConfigs = this.http.baseConfigs
   }
 
   /**
@@ -115,26 +118,8 @@ export class MediaWikiRestApi {
       ? finalPath
       : finalPath.replace(/^\//, '')
 
-    const merged = deepMerge<Partial<FexiosRequestOptions>>(
-      {},
-      this.config.fexiosConfigs as Partial<FexiosRequestOptions>,
-      restOptions
-    )
-
-    // deepMerge skips `undefined`, so handle explicit responseType specially
-    const hasRequestResponseType = hasOwn(restOptions, 'responseType')
-    const hasClientResponseType = hasOwn(
-      this.config.fexiosConfigs,
-      'responseType'
-    )
-    if (!hasRequestResponseType && !hasClientResponseType) {
-      delete merged.responseType
-    } else if (hasRequestResponseType) {
-      merged.responseType = restOptions.responseType
-    }
-
     return runWithRetryAndAbort({
-      options: merged,
+      options: restOptions,
       baseFetch: this.http.baseConfigs.fetch,
       signal,
       abortController,
