@@ -11,6 +11,147 @@ export enum WikiSaikouErrorCode {
   INVALID_REST_ENDPOINT = 'INVALID_REST_ENDPOINT',
 }
 
+const SENSITIVE_PARAM_KEYS = new Set(['lgpassword', 'password', 'retype'])
+const REDACTED_VALUE = '[REDACTED]'
+
+const hasSensitiveKey = (container: unknown): boolean => {
+  if (!container) return false
+  if (container instanceof URLSearchParams) {
+    for (const key of container.keys()) {
+      if (SENSITIVE_PARAM_KEYS.has(key.toLowerCase())) return true
+    }
+    return false
+  }
+  if (typeof FormData !== 'undefined' && container instanceof FormData) {
+    let found = false
+    container.forEach((_, key) => {
+      if (SENSITIVE_PARAM_KEYS.has(String(key).toLowerCase())) found = true
+    })
+    return found
+  }
+  if (typeof container === 'string') {
+    const params = new URLSearchParams(container)
+    for (const key of params.keys()) {
+      if (SENSITIVE_PARAM_KEYS.has(key.toLowerCase())) return true
+    }
+    return false
+  }
+  if (typeof container === 'object') {
+    return Object.keys(container as Record<string, unknown>).some((key) =>
+      SENSITIVE_PARAM_KEYS.has(key.toLowerCase())
+    )
+  }
+  return false
+}
+
+const redactSensitiveContainer = (container: unknown): unknown => {
+  if (!hasSensitiveKey(container)) return container
+  if (container instanceof URLSearchParams) {
+    const cloned = new URLSearchParams(container)
+    for (const key of Array.from(new Set(cloned.keys()))) {
+      if (SENSITIVE_PARAM_KEYS.has(key.toLowerCase())) {
+        cloned.set(key, REDACTED_VALUE)
+      }
+    }
+    return cloned
+  }
+  if (typeof FormData !== 'undefined' && container instanceof FormData) {
+    const cloned = new FormData()
+    container.forEach((value, key) => {
+      cloned.append(
+        key,
+        SENSITIVE_PARAM_KEYS.has(String(key).toLowerCase())
+          ? REDACTED_VALUE
+          : value
+      )
+    })
+    return cloned
+  }
+  if (typeof container === 'string') {
+    const cloned = new URLSearchParams(container)
+    for (const key of Array.from(new Set(cloned.keys()))) {
+      if (SENSITIVE_PARAM_KEYS.has(key.toLowerCase())) {
+        cloned.set(key, REDACTED_VALUE)
+      }
+    }
+    return cloned.toString()
+  }
+  const cloned: Record<string, unknown> = {
+    ...(container as Record<string, unknown>),
+  }
+  for (const key of Object.keys(cloned)) {
+    if (SENSITIVE_PARAM_KEYS.has(key.toLowerCase())) {
+      cloned[key] = REDACTED_VALUE
+    }
+  }
+  return cloned
+}
+
+/**
+ * Copy a Fexios context with sensitive request params redacted.
+ *
+ * Fexios exposes most ctx fields (`method`, `body`, `url`, ...) as accessor
+ * properties, many non-enumerable, whose getters read the ORIGINAL
+ * `ctx.request`. Object spread drops the non-enumerable ones and copying the
+ * descriptors would keep leaking the original body, so every own key is read
+ * into a plain value and the request-derived ones are then overridden.
+ */
+const redactContext = (ctx: Record<PropertyKey, unknown>) => {
+  const req = ctx.request as Record<string, unknown>
+  const request: Record<string, unknown> = { ...req, rawRequest: undefined }
+  if (req.body !== undefined) request.body = redactSensitiveContainer(req.body)
+  if (req.query !== undefined) {
+    request.query = redactSensitiveContainer(req.query)
+  }
+
+  const sanitized = Object.create(Object.getPrototypeOf(ctx))
+  for (const key of Reflect.ownKeys(ctx)) {
+    let value: unknown
+    try {
+      value = ctx[key]
+    } catch {
+      continue // getter may throw before a response exists
+    }
+    sanitized[key] = value
+  }
+  sanitized.request = request
+  sanitized.rawRequest = undefined
+  if ('body' in sanitized) sanitized.body = request.body
+  if ('query' in sanitized) sanitized.query = request.query
+  return sanitized
+}
+
+const isSensitiveContext = (value: unknown): boolean => {
+  const req = (value as { request?: Record<string, unknown> } | null)?.request
+  return (
+    !!req &&
+    typeof req === 'object' &&
+    (hasSensitiveKey(req.body) || hasSensitiveKey(req.query))
+  )
+}
+
+/**
+ * Strip login secrets from an error cause or a thrown error.
+ * - Fexios context: returns a redacted copy.
+ * - Error carrying a Fexios `context` (e.g. FexiosError on network failure):
+ *   redacts that context in place and returns the same error.
+ * @internal
+ */
+export const sanitizeErrorCause = <T>(cause: T): T => {
+  if (!cause || typeof cause !== 'object') return cause
+  if (cause instanceof Error) {
+    const holder = cause as Error & { context?: unknown }
+    if (isSensitiveContext(holder.context)) {
+      holder.context = redactContext(
+        holder.context as Record<PropertyKey, unknown>
+      )
+    }
+    return cause
+  }
+  if (!isSensitiveContext(cause)) return cause
+  return redactContext(cause as Record<PropertyKey, unknown>) as T
+}
+
 /**
  * SDK-level behavioral error (e.g., exhausted token retries, login failures,
  * or invalid REST endpoint/path configuration).
@@ -18,12 +159,14 @@ export enum WikiSaikouErrorCode {
  */
 export class WikiSaikouError extends Error {
   readonly name = 'WikiSaikouError'
+  readonly cause?: unknown
   constructor(
     readonly code: WikiSaikouErrorCode,
     readonly message: string = '',
-    readonly cause?: unknown
+    cause?: unknown
   ) {
     super(message)
+    this.cause = sanitizeErrorCause(cause)
   }
   static is(
     data?: unknown,
@@ -44,11 +187,13 @@ type RawMwApiError = MwApiResponseError & {
 export class MediaWikiApiError extends Error {
   readonly name = 'MediaWikiApiError'
   readonly code: string
+  readonly cause?: FexiosFinalContext
   constructor(
     readonly errors: MwApiResponseError[],
-    readonly cause?: FexiosFinalContext
+    cause?: FexiosFinalContext
   ) {
     super()
+    this.cause = sanitizeErrorCause(cause)
     this.errors = MediaWikiApiError.normalizeErrors(errors)
     this.message = this.errors
       .map((error) => error.text)
