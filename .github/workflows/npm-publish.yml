@@ -83,3 +83,29 @@ jobs:
 
       - name: Publish
         run: pnpm publish --no-git-checks --tag "$NPM_TAG"
+
+  release-notes:
+    needs: publish
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Diff against the previous version tag; GitHub would otherwise use the latest Release,
+      # which lags far behind the tags.
+      - name: Find previous tag
+        id: previous
+        run: |
+          PREV=$(git tag --list '*.*.*' --sort=-v:refname | grep -vx '${{ github.ref_name }}' | head -n1)
+          echo "tag=$PREV" >> "$GITHUB_OUTPUT"
+
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          prerelease: false
+          generate_release_notes: true
+          previous_tag: ${{ steps.previous.outputs.tag }}
