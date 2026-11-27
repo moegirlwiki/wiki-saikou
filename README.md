@@ -164,10 +164,34 @@ interface WikiSaikouConfig {
 
 **Node.js** only:
 
-- `login(lgname: string, lgpassword: string, params?: MwApiParams, postOptions?: { retry?: number; noCache?: boolean; autoRelogin?: boolean; autoReloginRetries?: number }): Promise<{ result: 'Success' | 'NeedToken' | 'WrongToken' | 'Failed'; token?: string; reason?: { code: string; text: string }; lguserid: number; lgusername: string }>`
-  - Login with bot password. Throws `WikiSaikouError(LOGIN_FAILED)` if result is not `Success`.
-  - `autoRelogin` defaults to `true` and will attach `assertuser` to future requests. If the session drops, the SDK auto re-logins and retries the request.
-  - `autoReloginRetries` defaults to `3` and controls how many re-login attempts are made per `assertnameduserfailed` incident.
+- `login(lgname: string, lgpassword: string, params?: MwApiParams, postOptions?: MediaWikiLoginOptions): Promise<MediaWikiLoginResult>`
+- `login(options: MediaWikiLoginInput): Promise<MediaWikiLoginResult>`
+  - Login with bot password, cached cookies, or both (cookie-first with automatic fallback to bot password). Throws `WikiSaikouError(LOGIN_FAILED)` if login fails.
+  - `cookies`: Accepts a `CookieJar`, a serialized JSON string/array from `api.cookieJar.toJSON()`, or a raw HTTP `Cookie` header string (e.g. `"session=abc; user=123"`).
+  - `assertuser`: Optional expected MediaWiki account name (only valid with `cookies`; matches MediaWiki's `assertuser` semantics, not the `User@Bot` `lgname`). Checked against `userinfo.name` when `verify: true` (and enforced on fallback/relogin), or attached directly as `assertuser` when `verify: false`.
+  - `verify`: Defaults to `true` (only valid with `cookies`). Calls `action=query&meta=userinfo` to confirm the session is still logged in. Set to `false` to skip verification (0 startup requests); subsequent requests will still attach `assertuser` (when specified) or `assert=user`.
+  - `autoRelogin`: Defaults to `true` and attaches `assertuser` (or `assert=user`) to future requests. When `lgname` and `lgpassword` are provided and the session drops, the SDK auto re-logins and retries the request.
+  - `autoReloginRetries`: Defaults to `3` and controls how many re-login attempts are made per `assertuserfailed` / `assertnameduserfailed` incident.
+  - `onCookiesChange?: (cookieJar: CookieJar) => void` (on `new MediaWikiApi({ baseURL, onCookiesChange })` or `api.onCookiesChange`): Invoked whenever server responses send `Set-Cookie` headers or `logout()` clears cookies, making it easy to persist `JSON.stringify(cookieJar)` to disk/cache.
+
+```ts
+import { readFileSync, writeFileSync } from 'node:fs'
+import { MediaWikiApi } from 'wiki-saikou/node'
+
+const api = new MediaWikiApi({
+  baseURL: 'https://zh.moegirl.org.cn/api.php',
+  onCookiesChange(jar) {
+    writeFileSync('cookies.json', JSON.stringify(jar))
+  },
+})
+
+// Reuse cached cookies; fall back to bot password automatically if expired
+await api.login({
+  cookies: readFileSync('cookies.json', 'utf-8'),
+  lgname: 'Bot@name',
+  lgpassword: 'bot-password',
+})
+```
 
 **Browser** only:
 
