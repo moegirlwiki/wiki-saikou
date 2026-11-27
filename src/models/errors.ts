@@ -87,33 +87,69 @@ const redactSensitiveContainer = (container: unknown): unknown => {
   return cloned
 }
 
-const sanitizeErrorCause = <T>(cause: T): T => {
+/**
+ * Copy a Fexios context with sensitive request params redacted.
+ *
+ * Fexios exposes most ctx fields (`method`, `body`, `url`, ...) as accessor
+ * properties, many non-enumerable, whose getters read the ORIGINAL
+ * `ctx.request`. Object spread drops the non-enumerable ones and copying the
+ * descriptors would keep leaking the original body, so every own key is read
+ * into a plain value and the request-derived ones are then overridden.
+ */
+const redactContext = (ctx: Record<PropertyKey, unknown>) => {
+  const req = ctx.request as Record<string, unknown>
+  const request: Record<string, unknown> = { ...req, rawRequest: undefined }
+  if (req.body !== undefined) request.body = redactSensitiveContainer(req.body)
+  if (req.query !== undefined) {
+    request.query = redactSensitiveContainer(req.query)
+  }
+
+  const sanitized = Object.create(Object.getPrototypeOf(ctx))
+  for (const key of Reflect.ownKeys(ctx)) {
+    let value: unknown
+    try {
+      value = ctx[key]
+    } catch {
+      continue // getter may throw before a response exists
+    }
+    sanitized[key] = value
+  }
+  sanitized.request = request
+  sanitized.rawRequest = undefined
+  if ('body' in sanitized) sanitized.body = request.body
+  if ('query' in sanitized) sanitized.query = request.query
+  return sanitized
+}
+
+const isSensitiveContext = (value: unknown): boolean => {
+  const req = (value as { request?: Record<string, unknown> } | null)?.request
+  return (
+    !!req &&
+    typeof req === 'object' &&
+    (hasSensitiveKey(req.body) || hasSensitiveKey(req.query))
+  )
+}
+
+/**
+ * Strip login secrets from an error cause or a thrown error.
+ * - Fexios context: returns a redacted copy.
+ * - Error carrying a Fexios `context` (e.g. FexiosError on network failure):
+ *   redacts that context in place and returns the same error.
+ * @internal
+ */
+export const sanitizeErrorCause = <T>(cause: T): T => {
   if (!cause || typeof cause !== 'object') return cause
-  const ctx = cause as Record<string, unknown>
-  const req = ctx.request as Record<string, unknown> | undefined
-  if (!req || typeof req !== 'object') return cause
-  if (!hasSensitiveKey(req.body) && !hasSensitiveKey(req.query)) {
+  if (cause instanceof Error) {
+    const holder = cause as Error & { context?: unknown }
+    if (isSensitiveContext(holder.context)) {
+      holder.context = redactContext(
+        holder.context as Record<PropertyKey, unknown>
+      )
+    }
     return cause
   }
-  const { rawRequest: _rawReq, ...restReq } = req
-  const { rawRequest: _rawCtxReq, ...restCtx } = ctx
-  const sanitizedCtx = Object.assign(
-    Object.create(Object.getPrototypeOf(ctx)),
-    restCtx,
-    {
-      ...(ctx.data !== undefined ? { data: ctx.data } : {}),
-      request: {
-        ...restReq,
-        ...(req.body !== undefined
-          ? { body: redactSensitiveContainer(req.body) }
-          : {}),
-        ...(req.query !== undefined
-          ? { query: redactSensitiveContainer(req.query) }
-          : {}),
-      },
-    }
-  )
-  return sanitizedCtx as T
+  if (!isSensitiveContext(cause)) return cause
+  return redactContext(cause as Record<PropertyKey, unknown>) as T
 }
 
 /**

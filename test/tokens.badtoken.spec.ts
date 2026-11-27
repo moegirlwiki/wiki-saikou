@@ -185,4 +185,45 @@ describe('Tokens (badtoken auto refresh)', () => {
     expect(bodyLgName).to.equal('TestBot')
     expect(JSON.stringify(caughtError)).to.not.include(secretPassword)
   })
+
+  it('keeps ctx fields and redacts top-level aliases in sanitized causes', async () => {
+    const api = new MediaWikiApi({
+      baseURL: 'https://example.org/w/api.php',
+      throwOnApiError: true,
+      fexiosConfigs: {
+        fetch: (async () =>
+          new Response(
+            JSON.stringify({ errors: [{ code: 'x', text: 'boom' }] }),
+            { headers: { 'Content-Type': 'application/json' } }
+          )) as any,
+      },
+    })
+    const err: any = await api
+      .post({ action: 'login', lgname: 'u', lgpassword: 'secret-1' })
+      .catch((e) => e)
+    const ctx = err.cause
+    expect(ctx.method).to.equal('post')
+    expect(ctx.url).to.be.a('string').and.not.empty
+    expect(ctx.rawRequest).to.equal(undefined)
+    expect(ctx.request.body.get('lgpassword')).to.equal('[REDACTED]')
+    expect(ctx.body.get('lgpassword')).to.equal('[REDACTED]')
+    expect(String(ctx.query)).to.not.include('secret-1')
+  })
+
+  it('redacts the request ctx of FexiosError on network failure', async () => {
+    const api = new MediaWikiApi({
+      baseURL: 'https://example.org/w/api.php',
+      fexiosConfigs: {
+        fetch: (async () => {
+          throw new TypeError('network down')
+        }) as any,
+      },
+    })
+    const err: any = await api
+      .post({ action: 'login', lgname: 'u', lgpassword: 'secret-2' })
+      .catch((e) => e)
+    expect(err.name).to.equal('FexiosError')
+    expect(err.context.request.body.get('lgpassword')).to.equal('[REDACTED]')
+    expect(err.context.rawRequest).to.equal(undefined)
+  })
 })

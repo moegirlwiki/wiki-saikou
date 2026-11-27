@@ -7,6 +7,7 @@ import { FexiosQueryBuilder } from 'fexios'
 import { createFexiosSaikou, type FexiosSaikou } from './models/FexiosSaikou.js'
 import {
   MediaWikiApiError,
+  sanitizeErrorCause,
   WikiSaikouError,
   WikiSaikouErrorCode,
 } from './models/errors.js'
@@ -232,7 +233,8 @@ export class WikiSaikouCore {
           err as FexiosFinalContext
         )
       }
-      throw err
+      // FexiosError (e.g. network failure) carries the request ctx unredacted
+      throw sanitizeErrorCause(err)
     }
   }
 
